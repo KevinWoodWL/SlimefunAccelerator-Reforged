@@ -1,8 +1,8 @@
-name: SlimefunAccelerator
-author: balugaq
-description: This is a Slimefun addon.
+name: SlimefunAcceleratorReforged
+author: KevinWoodWL
+description: A Leaf-friendly remaster of SlimefunAccelerator with safe region-aware machine tick scheduling.
 main: com.balugaq.slimefunaccelerator.implementation.SlimefunAccelerator
-website: https://github.com/balugaq/SlimefunAccelerator
+website: https://github.com/KevinWoodWL/SlimefunAccelerator
 version: ${project.version}
 api-version: 1.17
 depend:

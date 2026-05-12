@@ -4,6 +4,9 @@
 /bin/
 /target/
 *.iml
+*.log
+slimefun4.jar
+slimefun4_test.jar
 *.zip
 *.rar
 *.7z

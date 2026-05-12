@@ -25,7 +25,7 @@ public class SlimefunAccelerator extends JavaPlugin implements SlimefunAddon {
     @Getter
     private static SlimefunAccelerator instance;
     @Getter
-    private final String username = "balugaq";
+    private final String username = "KevinWoodWL";
     @Getter
     private final String repo = "SlimefunAccelerator";
     @Getter
@@ -130,6 +130,6 @@ public class SlimefunAccelerator extends JavaPlugin implements SlimefunAddon {
     @Nullable
     @Override
     public String getBugTrackerURL() {
-        return "https://github.com/balugaq/SlimefunAccelerator/issues";
+        return "https://github.com/KevinWoodWL/SlimefunAccelerator/issues";
     }
 }
