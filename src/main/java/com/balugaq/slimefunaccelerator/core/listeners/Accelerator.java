@@ -105,7 +105,7 @@ public class Accelerator implements Listener {
                 Set<Location> locations = entry.getValue();
                 RegionTaskScheduler.execute(plugin, chunk.world(), chunk.chunkX(), chunk.chunkZ(), () -> {
                     try {
-                        tickChunk(settings, locations);
+                        tickChunk(settings, locations, pendingTasks, groupRunning);
                     } finally {
                         if (pendingTasks.decrementAndGet() == 0) {
                             groupRunning.set(false);
@@ -119,13 +119,13 @@ public class Accelerator implements Listener {
         }
     }
 
-    private static void tickChunk(AcceleratorSettings settings, Set<Location> locations) {
+    private static void tickChunk(AcceleratorSettings settings, Set<Location> locations, AtomicInteger pendingTasks, AtomicBoolean groupRunning) {
         for (Location location : locations) {
-            tickLocation(settings, location);
+            tickLocation(settings, location, pendingTasks, groupRunning);
         }
     }
 
-    private static void tickLocation(AcceleratorSettings settings, Location location) {
+    private static void tickLocation(AcceleratorSettings settings, Location location, AtomicInteger pendingTasks, AtomicBoolean groupRunning) {
         World world = location.getWorld();
         if (world == null || (!settings.isTickUnload() && !world.isChunkLoaded(location.getBlockX() >> 4, location.getBlockZ() >> 4))) {
             return;
@@ -141,6 +141,7 @@ public class Accelerator implements Listener {
             return;
         }
 
+        Block block = location.getBlock();
         if (isCNSlimefun) {
             SlimefunBlockData config = StorageCacheUtils.getBlock(location);
             if (config == null) {
@@ -148,7 +149,7 @@ public class Accelerator implements Listener {
                 return;
             }
 
-            ticker.tick(location.getBlock(), item, config);
+            runTicker(ticker, () -> ticker.tick(block, item, config), pendingTasks, groupRunning);
         } else {
             Config config = BlockStorage.getLocationInfo(location);
             if (config == null) {
@@ -156,7 +157,34 @@ public class Accelerator implements Listener {
                 return;
             }
 
-            ticker.tick(location.getBlock(), item, config);
+            runTicker(ticker, () -> ticker.tick(block, item, config), pendingTasks, groupRunning);
+        }
+    }
+
+    private static void runTicker(BlockTicker ticker, Runnable task, AtomicInteger pendingTasks, AtomicBoolean groupRunning) {
+        if (ticker.isSynchronized()) {
+            task.run();
+            return;
+        }
+
+        pendingTasks.incrementAndGet();
+        try {
+            Bukkit.getScheduler().runTaskAsynchronously(SlimefunAccelerator.getInstance(), () -> {
+                try {
+                    task.run();
+                } finally {
+                    completeTask(pendingTasks, groupRunning);
+                }
+            });
+        } catch (RuntimeException exception) {
+            completeTask(pendingTasks, groupRunning);
+            throw exception;
+        }
+    }
+
+    private static void completeTask(AtomicInteger pendingTasks, AtomicBoolean groupRunning) {
+        if (pendingTasks.decrementAndGet() == 0) {
+            groupRunning.set(false);
         }
     }
 

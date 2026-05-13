@@ -24,7 +24,7 @@ public class AcceleratorSettings {
 
     public AcceleratorSettings() {
         this.enabled = true;
-        this.async = true;
+        this.async = false;
         this.delay = 10;
         this.period = 10;
         this.removeOriginalTicker = false;

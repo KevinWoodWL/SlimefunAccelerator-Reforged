@@ -59,6 +59,9 @@ public class AcceleratesLoader {
             boolean tickUnload = groupSection.getBoolean(TICK_UNLOAD_KEY, false);
             int extraTickerDelay = groupSection.getInt(EXTRA_TICKER_DELAY_KEY, 10);
             int extraTickerPeriod = groupSection.getInt(EXTRA_TICKER_PERIOD_KEY, 10);
+            if (!enabled) {
+                continue;
+            }
 
             List<String> excludes = groupSection.getStringList(EXCLUDE_KEY);
             excludes.replaceAll(String::toUpperCase);
