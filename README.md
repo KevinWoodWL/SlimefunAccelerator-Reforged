@@ -58,6 +58,34 @@ accelerates:
 
 如果某个附属出现并发报错，优先把对应加速组改为 `async: false`。
 
+## 已知问题
+
+### SlimefunTimeit 兼容问题
+
+当前版本不建议与 `SlimefunTimeit` 同时使用。
+
+`SlimefunTimeit` 会包装 Slimefun 机器 ticker 并写入性能统计数据。加速器改变机器 tick 的调度节奏后，可能导致 `SlimefunTimeit` 的统计容器被并发访问，从而出现以下问题：
+
+```text
+java.lang.ArrayIndexOutOfBoundsException
+it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap
+com.balugaq.sftimeit.core.Monitor.getData
+com.balugaq.sftimeit.api.MonitoringBlockTicker.tick
+```
+
+严重时服务器主线程可能卡在 `SlimefunTimeit` 的统计读取逻辑中，并触发 Watchdog：
+
+```text
+The server has not responded
+```
+
+建议：
+
+- 测试或使用本加速器时，先移除或禁用 `SlimefunTimeit`。
+- 需要使用 `SlimefunTimeit` 做性能分析时，先通过 `/slimefunaccelerator disable` 关闭加速器，或在 `config.yml` 中设置 `enabled: false` 后重启服务器。
+- 不建议在启用 `async: true` 的加速组时同时运行 `SlimefunTimeit`。
+- 如果已经出现上述异常，建议完整重启服务器，不要只热加载插件。
+
 ## 鸣谢
 
 原项目：SlimefunAccelerator by balugaq。
