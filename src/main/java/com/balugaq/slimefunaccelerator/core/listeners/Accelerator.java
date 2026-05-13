@@ -25,14 +25,15 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.BiConsumer;
 
 @SuppressWarnings("deprecation")
 public class Accelerator implements Listener {
@@ -42,10 +43,16 @@ public class Accelerator implements Listener {
     public static final boolean isCNSlimefun = SlimefunAccelerator.getInstance().getIntegrationManager().isCNSlimefun();
     public static final Map<String, AtomicBoolean> running = new ConcurrentHashMap<>(16);
     public static final Map<String, Set<Location>> tickLocations = new ConcurrentHashMap<>(16);
+    public static final Map<String, Object> asyncLocks = new ConcurrentHashMap<>(16);
     public static final Set<String> extraTickers = new HashSet<>(16);
-    public static final BiConsumer<String, Set<SlimefunItem>> onAccelerate = Accelerator::accelerate;
+    private static final AtomicBoolean enabled = new AtomicBoolean(false);
+    private static final AtomicInteger lifecycleId = new AtomicInteger(0);
 
-    private static void accelerate(String group, Set<SlimefunItem> items) {
+    private static void accelerate(String group, Set<SlimefunItem> items, int expectedLifecycleId) {
+        if (!isActiveLifecycle(expectedLifecycleId)) {
+            return;
+        }
+
         AtomicBoolean groupRunning = running.get(group);
         if (groupRunning == null || !groupRunning.compareAndSet(false, true)) {
             return;
@@ -105,7 +112,9 @@ public class Accelerator implements Listener {
                 Set<Location> locations = entry.getValue();
                 RegionTaskScheduler.execute(plugin, chunk.world(), chunk.chunkX(), chunk.chunkZ(), () -> {
                     try {
-                        tickChunk(settings, locations, pendingTasks, groupRunning);
+                        if (isActiveLifecycle(expectedLifecycleId)) {
+                            tickChunk(group, settings, locations, pendingTasks, groupRunning, expectedLifecycleId);
+                        }
                     } finally {
                         if (pendingTasks.decrementAndGet() == 0) {
                             groupRunning.set(false);
@@ -119,13 +128,19 @@ public class Accelerator implements Listener {
         }
     }
 
-    private static void tickChunk(AcceleratorSettings settings, Set<Location> locations, AtomicInteger pendingTasks, AtomicBoolean groupRunning) {
+    private static void tickChunk(String group, AcceleratorSettings settings, Set<Location> locations, AtomicInteger pendingTasks, AtomicBoolean groupRunning, int expectedLifecycleId) {
+        List<Runnable> asyncTasks = new ArrayList<>();
         for (Location location : locations) {
-            tickLocation(settings, location, pendingTasks, groupRunning);
+            if (!isActiveLifecycle(expectedLifecycleId)) {
+                return;
+            }
+            tickLocation(settings, location, asyncTasks);
         }
+
+        runAsyncTickerBatch(group, asyncTasks, pendingTasks, groupRunning, expectedLifecycleId);
     }
 
-    private static void tickLocation(AcceleratorSettings settings, Location location, AtomicInteger pendingTasks, AtomicBoolean groupRunning) {
+    private static void tickLocation(AcceleratorSettings settings, Location location, List<Runnable> asyncTasks) {
         World world = location.getWorld();
         if (world == null || (!settings.isTickUnload() && !world.isChunkLoaded(location.getBlockX() >> 4, location.getBlockZ() >> 4))) {
             return;
@@ -149,7 +164,7 @@ public class Accelerator implements Listener {
                 return;
             }
 
-            runTicker(ticker, () -> ticker.tick(block, item, config), pendingTasks, groupRunning);
+            runTicker(settings, ticker, () -> ticker.tick(block, item, config), asyncTasks);
         } else {
             Config config = BlockStorage.getLocationInfo(location);
             if (config == null) {
@@ -157,13 +172,21 @@ public class Accelerator implements Listener {
                 return;
             }
 
-            runTicker(ticker, () -> ticker.tick(block, item, config), pendingTasks, groupRunning);
+            runTicker(settings, ticker, () -> ticker.tick(block, item, config), asyncTasks);
         }
     }
 
-    private static void runTicker(BlockTicker ticker, Runnable task, AtomicInteger pendingTasks, AtomicBoolean groupRunning) {
-        if (ticker.isSynchronized()) {
-            task.run();
+    private static void runTicker(AcceleratorSettings settings, BlockTicker ticker, Runnable task, List<Runnable> asyncTasks) {
+        if (settings.isAsync() && !ticker.isSynchronized()) {
+            asyncTasks.add(task);
+            return;
+        }
+
+        task.run();
+    }
+
+    private static void runAsyncTickerBatch(String group, List<Runnable> asyncTasks, AtomicInteger pendingTasks, AtomicBoolean groupRunning, int expectedLifecycleId) {
+        if (asyncTasks.isEmpty()) {
             return;
         }
 
@@ -171,7 +194,19 @@ public class Accelerator implements Listener {
         try {
             Bukkit.getScheduler().runTaskAsynchronously(SlimefunAccelerator.getInstance(), () -> {
                 try {
-                    task.run();
+                    if (!isActiveLifecycle(expectedLifecycleId)) {
+                        return;
+                    }
+
+                    Object lock = asyncLocks.computeIfAbsent(group, ignored -> new Object());
+                    synchronized (lock) {
+                        for (Runnable asyncTask : asyncTasks) {
+                            if (!isActiveLifecycle(expectedLifecycleId)) {
+                                return;
+                            }
+                            asyncTask.run();
+                        }
+                    }
                 } finally {
                     completeTask(pendingTasks, groupRunning);
                 }
@@ -212,8 +247,34 @@ public class Accelerator implements Listener {
         }
     }
 
-    public static void load() {
+    public static boolean isRunning() {
+        return enabled.get();
+    }
+
+    private static boolean isActiveLifecycle(int expectedLifecycleId) {
+        return enabled.get() && lifecycleId.get() == expectedLifecycleId;
+    }
+
+    public static boolean load() {
+        if (!enabled.compareAndSet(false, true)) {
+            return false;
+        }
+
+        try {
+            loadInternal();
+            return true;
+        } catch (RuntimeException exception) {
+            shutdownInternal();
+            Accelerates.shutdown();
+            enabled.set(false);
+            throw exception;
+        }
+    }
+
+    private static void loadInternal() {
         SlimefunAccelerator.getInstance().getLogger().info("Loading accelerates...");
+        int currentLifecycleId = lifecycleId.incrementAndGet();
+        Accelerates.shutdown();
         AcceleratesLoader.loadAccelerates();
 
         Map<String, AcceleratorSettings> allSettings = new HashMap<>();
@@ -268,6 +329,9 @@ public class Accelerator implements Listener {
                             public void tick(@NotNull Block block, SlimefunItem slimefunItem, SlimefunBlockData config) {
                                 Location location = block.getLocation();
                                 Set<Location> queue = tickLocations.get(group);
+                                if (queue == null) {
+                                    return;
+                                }
                                 synchronized (queue) {
                                     queue.add(location);
                                 }
@@ -298,6 +362,9 @@ public class Accelerator implements Listener {
                             public void tick(@NotNull Block block, SlimefunItem slimefunItem, Config config) {
                                 Location location = block.getLocation();
                                 Set<Location> queue = tickLocations.get(group);
+                                if (queue == null) {
+                                    return;
+                                }
                                 synchronized (queue) {
                                     queue.add(location);
                                 }
@@ -310,7 +377,7 @@ public class Accelerator implements Listener {
             }
 
             int taskId = Bukkit.getScheduler().runTaskTimer(SlimefunAccelerator.getInstance(),
-                    () -> onAccelerate.accept(group, items),
+                    () -> accelerate(group, items, currentLifecycleId),
                     settings.getDelay(),
                     settings.getPeriod()
             ).getTaskId();
@@ -359,8 +426,13 @@ public class Accelerator implements Listener {
             for (SlimefunItem slimefunItem : items) {
                 ids.add(slimefunItem.getId());
             }
+
+            if (!settings.isEnabledExtraTicker()) {
+                continue;
+            }
+
             int taskId = Bukkit.getScheduler().runTaskTimer(SlimefunAccelerator.getInstance(),
-                    () -> queueExtraTicks(group, settings, ids),
+                    () -> queueExtraTicks(group, settings, ids, currentLifecycleId),
                     settings.getExtraTickerDelay(),
                     settings.getExtraTickerPeriod()
             ).getTaskId();
@@ -368,7 +440,11 @@ public class Accelerator implements Listener {
         }
     }
 
-    private static void queueExtraTicks(String group, AcceleratorSettings settings, Set<String> ids) {
+    private static void queueExtraTicks(String group, AcceleratorSettings settings, Set<String> ids, int expectedLifecycleId) {
+        if (!isActiveLifecycle(expectedLifecycleId)) {
+            return;
+        }
+
         Map<ChunkPosition, Map<String, Set<Location>>> locationsByChunk = new HashMap<>();
         for (String id : ids) {
             SlimefunItem slimefunItem = SlimefunItem.getById(id);
@@ -402,7 +478,11 @@ public class Accelerator implements Listener {
         for (Map.Entry<ChunkPosition, Map<String, Set<Location>>> entry : locationsByChunk.entrySet()) {
             ChunkPosition chunk = entry.getKey();
             Map<String, Set<Location>> locations = entry.getValue();
-            RegionTaskScheduler.execute(plugin, chunk.world(), chunk.chunkX(), chunk.chunkZ(), () -> queueExtraTicksInChunk(group, settings, locations));
+            RegionTaskScheduler.execute(plugin, chunk.world(), chunk.chunkX(), chunk.chunkZ(), () -> {
+                if (isActiveLifecycle(expectedLifecycleId)) {
+                    queueExtraTicksInChunk(group, settings, locations);
+                }
+            });
         }
     }
 
@@ -437,14 +517,24 @@ public class Accelerator implements Listener {
         }
     }
 
-    public static void shutdown() {
-        for (int taskId : Accelerates.getTaskIds().values()) {
+    public static boolean shutdown() {
+        boolean wasEnabled = enabled.getAndSet(false);
+        shutdownInternal();
+        Accelerates.shutdown();
+        return wasEnabled;
+    }
+
+    private static void shutdownInternal() {
+        lifecycleId.incrementAndGet();
+        for (int taskId : new HashSet<>(Accelerates.getTaskIds().values())) {
             Bukkit.getScheduler().cancelTask(taskId);
         }
         rollback();
-        originalTickers.clear();
         running.clear();
         tickLocations.clear();
+        asyncLocks.clear();
+        allTickerLocations.clear();
+        extraTickers.clear();
     }
 
     public static void rollback() {
@@ -461,11 +551,19 @@ public class Accelerator implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onInit(SlimefunItemRegistryFinalizedEvent event) {
-        load();
+        if (SlimefunAccelerator.getInstance().getConfigManager().isEnabled()) {
+            load();
+        } else {
+            SlimefunAccelerator.getInstance().getLogger().info("SlimefunAccelerator runtime is disabled in config.yml.");
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onBlockPlace(@NotNull BlockPlaceEvent event) {
+        if (!isRunning()) {
+            return;
+        }
+
         if (isCNSlimefun) {
             SlimefunBlockData config = StorageCacheUtils.getBlock(event.getBlock().getLocation());
             if (config == null) {
@@ -491,6 +589,10 @@ public class Accelerator implements Listener {
 
     @EventHandler
     public void onBlockPlacerPlace(@NotNull BlockPlacerPlaceEvent event) {
+        if (!isRunning()) {
+            return;
+        }
+
         SlimefunItem slimefunItem = SlimefunItem.getByItem(event.getItemStack());
         if (slimefunItem != null) {
             Set<Location> locations = allTickerLocations.computeIfAbsent(slimefunItem.getId(), k -> ConcurrentHashMap.newKeySet());

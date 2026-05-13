@@ -10,10 +10,18 @@ messages:
     help:
       header: "&b[Help] &f帮助."
       help: "&f/slimefunaccelerator help &7- &f显示帮助菜单."
-      reload: "&f/slimefunaccelerator reload &7- &f重新加载插件."
+      enable: "&f/slimefunaccelerator enable &7- &f启用加速器运行时."
+      disable: "&f/slimefunaccelerator disable &7- &f关闭加速器并还原原始 ticker."
+      reload: "&f/slimefunaccelerator reload &7- &f重新加载加速器配置."
       version: "&f/slimefunaccelerator version &7- &f显示插件版本."
+    enable:
+      success: "&a加速器已启用."
+      already-enabled: "&e加速器已经处于启用状态."
+    disable:
+      success: "&a加速器已关闭，原始 ticker 已还原."
+      already-disabled: "&e加速器已经处于关闭状态."
     reload:
-      success: "&a插件已重新加载."
+      success: "&a加速器配置已重新加载."
     version:
       # {version} = plugin version
       success: "&a插件版本: &f{version}"

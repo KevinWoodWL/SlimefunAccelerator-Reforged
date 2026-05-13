@@ -2,6 +2,8 @@ package com.balugaq.slimefunaccelerator.core.managers;
 
 import com.balugaq.slimefunaccelerator.api.utils.Lang;
 import com.balugaq.slimefunaccelerator.core.commands.SubCommand;
+import com.balugaq.slimefunaccelerator.core.commands.subcommands.DisableCommand;
+import com.balugaq.slimefunaccelerator.core.commands.subcommands.EnableCommand;
 import com.balugaq.slimefunaccelerator.core.commands.subcommands.HelpCommand;
 import com.balugaq.slimefunaccelerator.core.commands.subcommands.IdCommand;
 import com.balugaq.slimefunaccelerator.core.commands.subcommands.ReloadCommand;
@@ -35,7 +37,10 @@ public class CommandManager implements TabExecutor {
     }
 
     public void setup() {
+        subCommands.clear();
         subCommands.add(new HelpCommand(plugin));
+        subCommands.add(new EnableCommand(plugin));
+        subCommands.add(new DisableCommand(plugin));
         subCommands.add(new ReloadCommand(plugin));
         subCommands.add(new VersionCommand(plugin));
         subCommands.add(new IdCommand(plugin));

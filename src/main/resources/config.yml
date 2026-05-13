@@ -1,3 +1,6 @@
+# Enable SlimefunAccelerator runtime after Slimefun has finished loading.
+enabled: true
+
 # Auto update from Guizhan Build is enabled by default.
 # Auto update or not.
 auto-update: true

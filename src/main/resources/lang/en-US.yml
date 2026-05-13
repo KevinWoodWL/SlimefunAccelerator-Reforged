@@ -10,10 +10,18 @@ messages:
     help:
       header: "&b[Help] &fHelp Commands."
       help: "&f/slimefunaccelerator help &7- &fShows this help message."
-      reload: "&f/slimefunaccelerator reload &7- &fReloads the plugin."
+      enable: "&f/slimefunaccelerator enable &7- &fEnables the accelerator runtime."
+      disable: "&f/slimefunaccelerator disable &7- &fDisables the accelerator and restores original tickers."
+      reload: "&f/slimefunaccelerator reload &7- &fReloads accelerator configuration."
       version: "&f/slimefunaccelerator version &7- &fShows the plugin version."
+    enable:
+      success: "&aAccelerator enabled."
+      already-enabled: "&eAccelerator is already enabled."
+    disable:
+      success: "&aAccelerator disabled and original tickers restored."
+      already-disabled: "&eAccelerator is already disabled."
     reload:
-      success: "&aReloaded the plugin successfully."
+      success: "&aReloaded accelerator configuration successfully."
     version:
       # {version} = plugin version
       success: "&aVersion: &f{version}"

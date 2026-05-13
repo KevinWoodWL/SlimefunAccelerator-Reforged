@@ -51,7 +51,7 @@ public class AcceleratesLoader {
             }
 
             boolean enabled = groupSection.getBoolean(ENABLED_KEY, true);
-            boolean async = groupSection.getBoolean(ASYNC_KEY, true);
+            boolean async = groupSection.getBoolean(ASYNC_KEY, false);
             int period = groupSection.getInt(PERIOD_KEY, 10);
             int delay = groupSection.getInt(DELAY_KEY, 10);
             boolean removeOriginalTicker = groupSection.getBoolean(REMOVE_ORIGINAL_TICKER_KEY, false);

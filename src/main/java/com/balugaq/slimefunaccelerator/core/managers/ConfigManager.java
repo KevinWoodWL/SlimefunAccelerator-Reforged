@@ -24,6 +24,7 @@ public class ConfigManager {
     private static final @NotNull String BANS_PATH = "accelerates.yml";
     private final @NotNull FileConfiguration config;
     private final @NotNull FileConfiguration bans;
+    private final boolean ENABLED;
     @Since(ConfigVersion.C_20250223_1)
     private final boolean AUTO_UPDATE;
     @Since(ConfigVersion.C_20250223_1)
@@ -47,6 +48,7 @@ public class ConfigManager {
             plugin.getLogger().warning("Invalid config-version value: " + plugin.getConfig().getString("config-version", "UNKNOWN") + ", using default value: UNKNOWN");
             this.CONFIG_VERSION = ConfigVersion.C_UNKNOWN;
         }
+        this.ENABLED = config.getBoolean("enabled", true);
         this.AUTO_UPDATE = config.getBoolean("auto-update", false);
         this.DEBUG = config.getBoolean("debug", false);
         String buildStationStr = config.getString("build-station", "Guizhan");
@@ -123,6 +125,10 @@ public class ConfigManager {
 
     public boolean isAutoUpdate() {
         return AUTO_UPDATE;
+    }
+
+    public boolean isEnabled() {
+        return ENABLED;
     }
 
     public boolean isDebug() {

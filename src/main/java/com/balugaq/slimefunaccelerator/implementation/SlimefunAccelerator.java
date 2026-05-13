@@ -41,6 +41,11 @@ public class SlimefunAccelerator extends JavaPlugin implements SlimefunAddon {
     @Getter
     private LocalizationService localizationService;
 
+    public void reloadRuntimeConfiguration() {
+        getLogger().info("Reloading configuration...");
+        configManager = new ConfigManager(this);
+    }
+
     @Override
     public void onEnable() {
         instance = this;
@@ -59,8 +64,6 @@ public class SlimefunAccelerator extends JavaPlugin implements SlimefunAddon {
         integrationManager = new IntegrationManager(this);
         getLogger().info("Loading commands...");
         commandManager = new CommandManager(this);
-        commandManager.setup();
-        commandManager.registerCommand();
         getLogger().info("Loading listeners...");
         listenerManager = new ListenerManager(this);
         getListenerManager().setup();
@@ -116,8 +119,9 @@ public class SlimefunAccelerator extends JavaPlugin implements SlimefunAddon {
         getLogger().info("Disabling SlimefunAccelerator...");
         getLogger().info("Unloading listeners...");
         Accelerator.shutdown();
-        Accelerates.shutdown();
-        getListenerManager().unload();
+        if (getListenerManager() != null) {
+            getListenerManager().unload();
+        }
         getLogger().info("SlimefunAccelerator disabled.");
     }
 

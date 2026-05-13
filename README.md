@@ -9,12 +9,54 @@
 
 - 移除机器 ticker 的异步执行。
 - 默认配置中的 `async` 改为 `false`。
+- `async: false` 现在会强制该加速组在区域/主线程串行执行，适合 LogiTech 等不适合并发的附属。
+- `async: true` 只会让原本标记为异步的 Slimefun ticker 异步执行，并按加速组加锁串行，适合 Networks 等需要异步事件的附属。
 - 新增 Leaf/Paper 区域调度工具。
 - 机器位置先进入队列，再按区块分组处理。
 - 每个区块的机器组会优先提交到 Paper/Leaf 的 `RegionScheduler`。
 - 如果服务端没有 `RegionScheduler`，自动回退到 Bukkit 主线程调度。
 - 修复原有运行状态判断反向导致的跳 tick/重入问题。
 - 包装后的 Slimefun ticker 强制同步收集位置，避免 Slimefun 把收集逻辑丢到异步线程。
+- 新增 `/slimefunaccelerator enable` 和 `/slimefunaccelerator disable`，可在运行时启用/关闭加速器。
+- `/slimefunaccelerator disable` 会取消加速任务，并把机器 ticker 还原为 Slimefun 原始状态。
+- `/slimefunaccelerator reload` 现在只重载加速器配置和运行时，不再调用插件自身的 `onDisable/onEnable`。
+
+## 配置建议
+
+`config.yml` 中的 `enabled` 控制插件启动后是否自动启用加速器运行时。
+
+```yaml
+enabled: true
+```
+
+`accelerates.yml` 中建议按附属分组配置：
+
+```yaml
+accelerates:
+  logitech:
+    enabled: true
+    async: false
+    period: 20
+    delay: 20
+    addons:
+      - "LogiTech"
+    items: []
+    excludes: []
+    remove-original-ticker: false
+
+  networks:
+    enabled: true
+    async: true
+    period: 40
+    delay: 20
+    addons:
+      - "Networks"
+    items: []
+    excludes: []
+    remove-original-ticker: false
+```
+
+如果某个附属出现并发报错，优先把对应加速组改为 `async: false`。
 
 ## 鸣谢
 

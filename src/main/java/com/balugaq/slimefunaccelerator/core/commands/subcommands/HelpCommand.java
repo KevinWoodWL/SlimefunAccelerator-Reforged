@@ -32,6 +32,8 @@ public class HelpCommand extends SubCommand {
     public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, @NotNull String[] args) {
         sender.sendMessage(Lang.getMessage("commands.help.header"));
         sender.sendMessage(Lang.getMessage("commands.help.help"));
+        sender.sendMessage(Lang.getMessage("commands.help.enable"));
+        sender.sendMessage(Lang.getMessage("commands.help.disable"));
         sender.sendMessage(Lang.getMessage("commands.help.reload"));
         sender.sendMessage(Lang.getMessage("commands.help.version"));
         return true;
