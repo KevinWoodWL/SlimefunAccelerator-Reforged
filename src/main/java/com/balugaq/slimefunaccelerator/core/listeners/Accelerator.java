@@ -22,6 +22,7 @@ import org.bukkit.block.Block;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.jetbrains.annotations.NotNull;
 
@@ -77,16 +78,10 @@ public class Accelerator implements Listener {
                 return;
             }
 
-            Set<Location> groupSet = tickLocations.get(group);
-            if (groupSet == null || groupSet.isEmpty()) {
+            Set<Location> queue = tickLocations.put(group, ConcurrentHashMap.newKeySet());
+            if (queue == null || queue.isEmpty()) {
                 groupRunning.set(false);
                 return;
-            }
-
-            Set<Location> queue;
-            synchronized (groupSet) {
-                queue = new HashSet<>(groupSet);
-                groupSet.removeAll(queue);
             }
 
             Map<ChunkPosition, Set<Location>> locationsByChunk = new HashMap<>();
@@ -236,9 +231,7 @@ public class Accelerator implements Listener {
         Location storedLocation = location.clone();
         storedLocation.setYaw(0);
         storedLocation.setPitch(0);
-        synchronized (extra) {
-            extra.remove(storedLocation);
-        }
+        extra.remove(storedLocation);
     }
 
     private record ChunkPosition(World world, int chunkX, int chunkZ) {
@@ -329,10 +322,7 @@ public class Accelerator implements Listener {
                             public void tick(@NotNull Block block, SlimefunItem slimefunItem, SlimefunBlockData config) {
                                 Location location = block.getLocation();
                                 Set<Location> queue = tickLocations.get(group);
-                                if (queue == null) {
-                                    return;
-                                }
-                                synchronized (queue) {
+                                if (queue != null) {
                                     queue.add(location);
                                 }
                             }
@@ -362,10 +352,7 @@ public class Accelerator implements Listener {
                             public void tick(@NotNull Block block, SlimefunItem slimefunItem, Config config) {
                                 Location location = block.getLocation();
                                 Set<Location> queue = tickLocations.get(group);
-                                if (queue == null) {
-                                    return;
-                                }
-                                synchronized (queue) {
+                                if (queue != null) {
                                     queue.add(location);
                                 }
                             }
@@ -386,10 +373,8 @@ public class Accelerator implements Listener {
 
         if (isCNSlimefun) {
             for (Map.Entry<String, Set<Location>> entry : ExtraTickerCNVersion.getAllTickLocations().entrySet()) {
-                Set<Location> locations = allTickerLocations.computeIfAbsent(entry.getKey(), k -> ConcurrentHashMap.newKeySet());
-                synchronized (locations) {
-                    locations.addAll(entry.getValue());
-                }
+                allTickerLocations.computeIfAbsent(entry.getKey(), k -> ConcurrentHashMap.newKeySet())
+                        .addAll(entry.getValue());
             }
         } else {
             for (World world : Bukkit.getWorlds()) {
@@ -457,10 +442,7 @@ public class Accelerator implements Listener {
                 continue;
             }
 
-            Set<Location> snapshot;
-            synchronized (locations) {
-                snapshot = new HashSet<>(locations);
-            }
+            Set<Location> snapshot = new HashSet<>(locations);
 
             for (Location location : snapshot) {
                 if (location == null || location.getWorld() == null) {
@@ -510,9 +492,7 @@ public class Accelerator implements Listener {
 
                 Location clone = location.clone();
                 clone.setYaw(EXTRA_TICKER_FLAG);
-                synchronized (queue) {
-                    queue.add(clone);
-                }
+                queue.add(clone);
             }
         }
     }
@@ -570,20 +550,27 @@ public class Accelerator implements Listener {
                 return;
             }
 
-            Set<Location> locations = allTickerLocations.computeIfAbsent(config.getSfId(), k -> ConcurrentHashMap.newKeySet());
-            synchronized (locations) {
-                locations.add(event.getBlock().getLocation());
-            }
+            allTickerLocations.computeIfAbsent(config.getSfId(), k -> ConcurrentHashMap.newKeySet())
+                    .add(event.getBlock().getLocation());
         } else {
             Config config = BlockStorage.getLocationInfo(event.getBlock().getLocation());
             if (config == null) {
                 return;
             }
 
-            Set<Location> locations = allTickerLocations.computeIfAbsent(config.getString("id"), k -> ConcurrentHashMap.newKeySet());
-            synchronized (locations) {
-                locations.add(event.getBlock().getLocation());
-            }
+            allTickerLocations.computeIfAbsent(config.getString("id"), k -> ConcurrentHashMap.newKeySet())
+                    .add(event.getBlock().getLocation());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBlockBreak(@NotNull BlockBreakEvent event) {
+        if (!isRunning()) {
+            return;
+        }
+        Location loc = event.getBlock().getLocation();
+        for (Set<Location> locations : allTickerLocations.values()) {
+            locations.remove(loc);
         }
     }
 
@@ -595,10 +582,8 @@ public class Accelerator implements Listener {
 
         SlimefunItem slimefunItem = SlimefunItem.getByItem(event.getItemStack());
         if (slimefunItem != null) {
-            Set<Location> locations = allTickerLocations.computeIfAbsent(slimefunItem.getId(), k -> ConcurrentHashMap.newKeySet());
-            synchronized (locations) {
-                locations.add(event.getBlockPlacer().getLocation());
-            }
+            allTickerLocations.computeIfAbsent(slimefunItem.getId(), k -> ConcurrentHashMap.newKeySet())
+                    .add(event.getBlockPlacer().getLocation());
         }
     }
 }

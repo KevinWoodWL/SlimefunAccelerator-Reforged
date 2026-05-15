@@ -8,20 +8,19 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Getter
 public class ExtraTickerCNVersion implements Listener {
     @Getter
-    private static final Map<String, Set<Location>> allTickLocations = new HashMap<>();
+    private static final Map<String, Set<Location>> allTickLocations = new ConcurrentHashMap<>();
 
     @EventHandler
     public void onSlimefunChunkDataLoad(@NotNull SlimefunChunkDataLoadEvent event) {
         for (SlimefunBlockData blockData : event.getChunkData().getAllBlockData()) {
-            allTickLocations.computeIfAbsent(blockData.getSfId(), k -> new HashSet<>()).add(blockData.getLocation());
+            allTickLocations.computeIfAbsent(blockData.getSfId(), k -> ConcurrentHashMap.newKeySet()).add(blockData.getLocation());
         }
     }
 }
