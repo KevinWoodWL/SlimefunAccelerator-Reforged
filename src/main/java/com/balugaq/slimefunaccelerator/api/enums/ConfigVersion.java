@@ -14,6 +14,7 @@ public enum ConfigVersion {
     C_UNKNOWN,
     C_20250223_1,
     C_20250224_1,
+    C_20260515_1,
     ;
 
     ConfigVersion() {
