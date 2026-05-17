@@ -6,7 +6,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.kevinwoodwl.slimefunaccelerator</groupId>
     <artifactId>SlimefunAcceleratorReforged</artifactId>
-    <version>1.0.4-SNAPSHOT</version>
+    <version>1.0.4</version>
     <name>SlimefunAcceleratorReforged</name>
 
     <pluginRepositories>
