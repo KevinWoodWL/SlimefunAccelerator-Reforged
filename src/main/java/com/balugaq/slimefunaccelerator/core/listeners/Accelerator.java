@@ -4,7 +4,10 @@ import com.balugaq.slimefunaccelerator.api.AcceleratorSettings;
 import com.balugaq.slimefunaccelerator.api.utils.Accelerates;
 import com.balugaq.slimefunaccelerator.api.utils.ReflectionUtil;
 import com.balugaq.slimefunaccelerator.core.managers.AcceleratesLoader;
+import com.balugaq.slimefunaccelerator.core.managers.ConfigManager;
+import com.balugaq.slimefunaccelerator.core.services.LoadMonitor;
 import com.balugaq.slimefunaccelerator.core.services.RegionTaskScheduler;
+import com.balugaq.slimefunaccelerator.core.services.TickProfiler;
 import com.balugaq.slimefunaccelerator.implementation.SlimefunAccelerator;
 import com.xzavier0722.mc.plugin.slimefun4.storage.controller.SlimefunBlockData;
 import com.xzavier0722.mc.plugin.slimefun4.storage.util.StorageCacheUtils;
@@ -54,6 +57,8 @@ public class Accelerator implements Listener {
     };
     private static final Map<Class<?>, Object> TIMEIT_CLASS_LOCKS = new ConcurrentHashMap<>(8);
     private static final Map<String, Integer> chunkBucketHint = new ConcurrentHashMap<>(16);
+    private static volatile TickProfiler tickProfiler;
+    private static volatile LoadMonitor loadMonitor;
     public static final Map<String, Set<Location>> allTickerLocations = new ConcurrentHashMap<>(16);
     public static final Map<SlimefunItem, BlockTicker> originalTickers = new ConcurrentHashMap<>(16);
     public static final Map<String, AtomicBoolean> running = new ConcurrentHashMap<>(16);
@@ -78,22 +83,126 @@ public class Accelerator implements Listener {
         return resolved;
     }
 
+    public static TickProfiler getTickProfiler() {
+        TickProfiler local = tickProfiler;
+        if (local != null) {
+            return local;
+        }
+        // Build on demand from current config — first caller wins.
+        SlimefunAccelerator plugin = SlimefunAccelerator.getInstance();
+        if (plugin == null) {
+            return null;
+        }
+        synchronized (Accelerator.class) {
+            if (tickProfiler != null) {
+                return tickProfiler;
+            }
+            ConfigManager cm = plugin.getConfigManager();
+            tickProfiler = new TickProfiler(
+                    cm.isCircuitBreakerEnabled(),
+                    cm.getCircuitBreakerMaxMicros(),
+                    cm.getCircuitBreakerOverrunThreshold(),
+                    cm.getCircuitBreakerCooldownTicks(),
+                    cm.getCircuitBreakerRecoverySamples(),
+                    cm.getCircuitBreakerEmaAlpha(),
+                    plugin.getLogger());
+            return tickProfiler;
+        }
+    }
+
+    /** Drop the cached profiler so a subsequent get rebuilds from config. */
+    public static void resetTickProfiler() {
+        synchronized (Accelerator.class) {
+            tickProfiler = null;
+        }
+    }
+
+    public static LoadMonitor getLoadMonitor() {
+        LoadMonitor local = loadMonitor;
+        if (local != null) {
+            return local;
+        }
+        SlimefunAccelerator plugin = SlimefunAccelerator.getInstance();
+        if (plugin == null) {
+            return null;
+        }
+        synchronized (Accelerator.class) {
+            if (loadMonitor != null) {
+                return loadMonitor;
+            }
+            ConfigManager cm = plugin.getConfigManager();
+            loadMonitor = new LoadMonitor(
+                    cm.isLoadAwareEnabled(),
+                    cm.getLoadAwareThrottleTps(),
+                    cm.getLoadAwareSkipTps(),
+                    cm.getGroupTimeoutMultiplier());
+            return loadMonitor;
+        }
+    }
+
+    public static void resetLoadMonitor() {
+        synchronized (Accelerator.class) {
+            loadMonitor = null;
+        }
+    }
+
+    private static void finishRound(String group, AtomicBoolean groupRunning) {
+        LoadMonitor monitor = loadMonitor;
+        if (monitor != null) {
+            monitor.clearRound(group);
+        }
+        groupRunning.set(false);
+    }
+
     private static void accelerate(String group, Set<SlimefunItem> items, int expectedLifecycleId) {
         if (!isActiveLifecycle(expectedLifecycleId)) {
             return;
         }
 
         AtomicBoolean groupRunning = running.get(group);
-        if (groupRunning == null || !groupRunning.compareAndSet(false, true)) {
+        if (groupRunning == null) {
             return;
         }
 
-        try {
-            AcceleratorSettings settings = Accelerates.getAccelerateSettings().get(group);
-            if (settings == null) {
-                groupRunning.set(false);
+        AcceleratorSettings settings = Accelerates.getAccelerateSettings().get(group);
+        if (settings == null) {
+            return;
+        }
+
+        LoadMonitor monitor = getLoadMonitor();
+
+        // Force-recover a wedged group: if the previous round is still
+        // marked as running well past its expected completion, drop the
+        // queued work and let the next round take over from scratch.
+        if (monitor != null && groupRunning.get() && monitor.isRoundOverdue(group)) {
+            tickLocations.put(group, ConcurrentHashMap.newKeySet());
+            monitor.clearRound(group);
+            groupRunning.set(false);
+            SlimefunAccelerator.getInstance().getLogger().warning(
+                    "Group '" + group + "' round overdue (> " + monitor.getGroupTimeoutMultiplier()
+                            + "x period). Dropping queued ticks and resuming.");
+        }
+
+        // TPS-aware throttle.
+        if (monitor != null) {
+            LoadMonitor.Decision decision = monitor.decide();
+            if (decision == LoadMonitor.Decision.SKIP) {
                 return;
             }
+            if (decision == LoadMonitor.Decision.HALVE && monitor.shouldHalveThisCall(group)) {
+                return;
+            }
+        }
+
+        if (!groupRunning.compareAndSet(false, true)) {
+            return;
+        }
+
+        if (monitor != null) {
+            monitor.markRoundStart(group, settings.getPeriod());
+        }
+
+        try {
 
             for (SlimefunItem slimefunItem : items) {
                 if (slimefunItem.isDisabled()) {
@@ -109,7 +218,7 @@ public class Accelerator implements Listener {
 
             Set<Location> queue = tickLocations.put(group, ConcurrentHashMap.newKeySet());
             if (queue == null || queue.isEmpty()) {
-                groupRunning.set(false);
+                finishRound(group, groupRunning);
                 return;
             }
 
@@ -127,7 +236,7 @@ public class Accelerator implements Listener {
             }
 
             if (locationsByChunk.isEmpty()) {
-                groupRunning.set(false);
+                finishRound(group, groupRunning);
                 return;
             }
 
@@ -145,7 +254,7 @@ public class Accelerator implements Listener {
                             }
                         } finally {
                             if (pendingTasks.decrementAndGet() == 0) {
-                                groupRunning.set(false);
+                                finishRound(group, groupRunning);
                             }
                         }
                     });
@@ -153,14 +262,14 @@ public class Accelerator implements Listener {
                     // RegionTaskScheduler.execute rejected synchronously: balance the counter so
                     // the next round can run. Swallow so other chunks still get scheduled.
                     if (pendingTasks.decrementAndGet() == 0) {
-                        groupRunning.set(false);
+                        finishRound(group, groupRunning);
                     }
                     plugin.getLogger().log(java.util.logging.Level.WARNING,
                             "Failed to schedule chunk tick for group '" + group + "'", scheduleFailure);
                 }
             }
         } catch (RuntimeException exception) {
-            groupRunning.set(false);
+            finishRound(group, groupRunning);
             throw exception;
         }
     }
@@ -192,26 +301,44 @@ public class Accelerator implements Listener {
         if (ticker == null) {
             return;
         }
+        // Cheap fast-path: if the breaker is currently open we can skip the
+        // BlockStorage lookup and the runTicker plumbing entirely.
+        String itemId = item.getId();
+        TickProfiler profiler = getTickProfiler();
+        if (profiler != null && profiler.isTripped(itemId, System.nanoTime())) {
+            return;
+        }
         BlockTicker executionTicker = getExecutionTicker(settings, ticker);
 
         Block block = location.getBlock();
         if (isCNSlimefun()) {
             SlimefunBlockData config = StorageCacheUtils.getBlock(location);
             if (config == null) {
-                removeExtraTickerLocation(item.getId(), location);
+                removeExtraTickerLocation(itemId, location);
                 return;
             }
 
-            runTicker(settings, executionTicker, () -> executionTicker.tick(block, item, config), asyncTasks);
+            runTicker(settings, executionTicker,
+                    profiledRunnable(profiler, itemId, () -> executionTicker.tick(block, item, config)),
+                    asyncTasks);
         } else {
             Config config = BlockStorage.getLocationInfo(location);
             if (config == null) {
-                removeExtraTickerLocation(item.getId(), location);
+                removeExtraTickerLocation(itemId, location);
                 return;
             }
 
-            runTicker(settings, executionTicker, () -> executionTicker.tick(block, item, config), asyncTasks);
+            runTicker(settings, executionTicker,
+                    profiledRunnable(profiler, itemId, () -> executionTicker.tick(block, item, config)),
+                    asyncTasks);
         }
+    }
+
+    private static Runnable profiledRunnable(TickProfiler profiler, String itemId, Runnable task) {
+        if (profiler == null || !profiler.isEnabled()) {
+            return task;
+        }
+        return () -> profiler.measure(itemId, task);
     }
 
     private static BlockTicker getExecutionTicker(AcceleratorSettings settings, BlockTicker ticker) {
@@ -307,18 +434,18 @@ public class Accelerator implements Listener {
                         }
                     }
                 } finally {
-                    completeTask(pendingTasks, groupRunning);
+                    completeTask(group, pendingTasks, groupRunning);
                 }
             });
         } catch (RuntimeException exception) {
-            completeTask(pendingTasks, groupRunning);
+            completeTask(group, pendingTasks, groupRunning);
             throw exception;
         }
     }
 
-    private static void completeTask(AtomicInteger pendingTasks, AtomicBoolean groupRunning) {
+    private static void completeTask(String group, AtomicInteger pendingTasks, AtomicBoolean groupRunning) {
         if (pendingTasks.decrementAndGet() == 0) {
-            groupRunning.set(false);
+            finishRound(group, groupRunning);
         }
     }
 
@@ -625,6 +752,12 @@ public class Accelerator implements Listener {
         allTickerLocations.clear();
         extraTickers.clear();
         chunkBucketHint.clear();
+        LoadMonitor monitor = loadMonitor;
+        if (monitor != null) {
+            monitor.reset();
+        }
+        resetTickProfiler();
+        resetLoadMonitor();
     }
 
     public static void rollback() {

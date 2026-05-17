@@ -37,6 +37,22 @@ public class ConfigManager {
     @Since(ConfigVersion.C_20250223_1)
     private ConfigVersion CONFIG_VERSION;
 
+    // Circuit breaker (per-item, since C_20260517_1).
+    private final boolean CIRCUIT_BREAKER_ENABLED;
+    private final long CIRCUIT_BREAKER_MAX_MICROS;
+    private final int CIRCUIT_BREAKER_OVERRUN_THRESHOLD;
+    private final long CIRCUIT_BREAKER_COOLDOWN_TICKS;
+    private final int CIRCUIT_BREAKER_RECOVERY_SAMPLES;
+    private final double CIRCUIT_BREAKER_EMA_ALPHA;
+
+    // Load-aware throttling (server TPS, since C_20260517_1).
+    private final boolean LOAD_AWARE_ENABLED;
+    private final double LOAD_AWARE_THROTTLE_TPS;
+    private final double LOAD_AWARE_SKIP_TPS;
+
+    // Per-group round timeout (since C_20260517_1).
+    private final int GROUP_TIMEOUT_MULTIPLIER;
+
     public ConfigManager(@NotNull JavaPlugin plugin) {
         this.plugin = plugin;
         this.config = YamlConfiguration.loadConfiguration(new File(plugin.getDataFolder(), CONFIG_PATH));
@@ -59,6 +75,19 @@ public class ConfigManager {
             this.BUILD_STATION = BuildStation.GUIZHAN;
         }
         this.LANGUAGE = config.getString("language", "zh-CN");
+
+        this.CIRCUIT_BREAKER_ENABLED = config.getBoolean("circuit-breaker.enabled", true);
+        this.CIRCUIT_BREAKER_MAX_MICROS = config.getLong("circuit-breaker.max-tick-time-micros", 5000L);
+        this.CIRCUIT_BREAKER_OVERRUN_THRESHOLD = config.getInt("circuit-breaker.overrun-threshold", 20);
+        this.CIRCUIT_BREAKER_COOLDOWN_TICKS = config.getLong("circuit-breaker.cooldown-ticks", 1200L);
+        this.CIRCUIT_BREAKER_RECOVERY_SAMPLES = config.getInt("circuit-breaker.recovery-samples", 200);
+        this.CIRCUIT_BREAKER_EMA_ALPHA = config.getDouble("circuit-breaker.ema-alpha", 0.1);
+
+        this.LOAD_AWARE_ENABLED = config.getBoolean("load-aware.enabled", true);
+        this.LOAD_AWARE_THROTTLE_TPS = config.getDouble("load-aware.throttle-tps", 18.0);
+        this.LOAD_AWARE_SKIP_TPS = config.getDouble("load-aware.skip-tps", 15.0);
+
+        this.GROUP_TIMEOUT_MULTIPLIER = Math.max(2, config.getInt("group-timeout-multiplier", 5));
     }
 
     private void setupDefaultConfig() {
@@ -146,4 +175,17 @@ public class ConfigManager {
     public ConfigVersion getConfigVersion() {
         return CONFIG_VERSION;
     }
+
+    public boolean isCircuitBreakerEnabled() { return CIRCUIT_BREAKER_ENABLED; }
+    public long getCircuitBreakerMaxMicros() { return CIRCUIT_BREAKER_MAX_MICROS; }
+    public int getCircuitBreakerOverrunThreshold() { return CIRCUIT_BREAKER_OVERRUN_THRESHOLD; }
+    public long getCircuitBreakerCooldownTicks() { return CIRCUIT_BREAKER_COOLDOWN_TICKS; }
+    public int getCircuitBreakerRecoverySamples() { return CIRCUIT_BREAKER_RECOVERY_SAMPLES; }
+    public double getCircuitBreakerEmaAlpha() { return CIRCUIT_BREAKER_EMA_ALPHA; }
+
+    public boolean isLoadAwareEnabled() { return LOAD_AWARE_ENABLED; }
+    public double getLoadAwareThrottleTps() { return LOAD_AWARE_THROTTLE_TPS; }
+    public double getLoadAwareSkipTps() { return LOAD_AWARE_SKIP_TPS; }
+
+    public int getGroupTimeoutMultiplier() { return GROUP_TIMEOUT_MULTIPLIER; }
 }
