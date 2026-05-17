@@ -14,6 +14,7 @@ messages:
       disable: "&f/slimefunaccelerator disable &7- &f关闭加速器并还原原始 ticker."
       reload: "&f/slimefunaccelerator reload &7- &f重新加载加速器配置."
       version: "&f/slimefunaccelerator version &7- &f显示插件版本."
+      stats: "&f/slimefunaccelerator stats [n] &7- &f显示 TPS 和 top-N 耗时物品."
     enable:
       success: "&a加速器已启用."
       already-enabled: "&e加速器已经处于启用状态."
@@ -28,6 +29,17 @@ messages:
     id:
       # {id} = item ID
       success: "&a物品 ID: &f{id}"
+    stats:
+      header: "&b[Stats] &f加速器统计快照"
+      tps: "&7服务器 TPS: &f{tps}"
+      profiler-off: "&7熔断器已关闭 — 无每物品统计数据."
+      no-samples: "&7还没有任何物品被 tick 过."
+      # {tripped} 当前熔断中物品数 / {total} 已采样总数
+      tripped-summary: "&7熔断中: &c{tripped}&7/&f{total}"
+      # {id}, {ema}/{avg}/{max} 单位 ms
+      row: "&f{id} &7ema &f{ema}ms &7avg &f{avg}ms &7max &c{max}ms &7n={samples} 熔断={trips} 跳过={skipped}{suffix}"
+      # {cooldown} 剩余冷却秒数
+      row-tripped: " &c[熔断 {cooldown}s]"
   load:
     failed-auto-update: "&c自动更新失败: {message}" # {message} = error message
     # {id} = item ID

@@ -36,6 +36,7 @@ public class HelpCommand extends SubCommand {
         sender.sendMessage(Lang.getMessage("commands.help.disable"));
         sender.sendMessage(Lang.getMessage("commands.help.reload"));
         sender.sendMessage(Lang.getMessage("commands.help.version"));
+        sender.sendMessage(Lang.getMessage("commands.help.stats"));
         return true;
     }
 

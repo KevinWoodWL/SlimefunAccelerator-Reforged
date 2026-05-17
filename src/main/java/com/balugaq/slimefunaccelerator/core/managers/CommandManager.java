@@ -7,6 +7,7 @@ import com.balugaq.slimefunaccelerator.core.commands.subcommands.EnableCommand;
 import com.balugaq.slimefunaccelerator.core.commands.subcommands.HelpCommand;
 import com.balugaq.slimefunaccelerator.core.commands.subcommands.IdCommand;
 import com.balugaq.slimefunaccelerator.core.commands.subcommands.ReloadCommand;
+import com.balugaq.slimefunaccelerator.core.commands.subcommands.StatsCommand;
 import com.balugaq.slimefunaccelerator.core.commands.subcommands.VersionCommand;
 import com.google.common.base.Preconditions;
 import lombok.Getter;
@@ -44,6 +45,7 @@ public class CommandManager implements TabExecutor {
         subCommands.add(new ReloadCommand(plugin));
         subCommands.add(new VersionCommand(plugin));
         subCommands.add(new IdCommand(plugin));
+        subCommands.add(new StatsCommand(plugin));
     }
 
     public void registerCommand() {

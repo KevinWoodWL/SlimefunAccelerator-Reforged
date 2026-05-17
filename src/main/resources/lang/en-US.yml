@@ -14,6 +14,7 @@ messages:
       disable: "&f/slimefunaccelerator disable &7- &fDisables the accelerator and restores original tickers."
       reload: "&f/slimefunaccelerator reload &7- &fReloads accelerator configuration."
       version: "&f/slimefunaccelerator version &7- &fShows the plugin version."
+      stats: "&f/slimefunaccelerator stats [n] &7- &fShows TPS + top-N expensive items."
     enable:
       success: "&aAccelerator enabled."
       already-enabled: "&eAccelerator is already enabled."
@@ -28,6 +29,17 @@ messages:
     id:
       # {id} = item ID
       success: "&aItem ID: &f{id}"
+    stats:
+      header: "&b[Stats] &fAccelerator profiler snapshot"
+      tps: "&7Server TPS: &f{tps}"
+      profiler-off: "&7Circuit breaker is disabled — no per-item stats."
+      no-samples: "&7No items have been ticked yet."
+      # {tripped} currently-tripped items out of {total} total tracked
+      tripped-summary: "&7Tripped now: &c{tripped}&7/&f{total}"
+      # {id}, {ema}/{avg}/{max} in ms, {samples}, {trips}, {skipped}, {suffix}
+      row: "&f{id} &7ema &f{ema}ms &7avg &f{avg}ms &7max &c{max}ms &7n={samples} trips={trips} skip={skipped}{suffix}"
+      # {cooldown} seconds remaining
+      row-tripped: " &c[TRIPPED {cooldown}s]"
   load:
     # {id} = item ID
     added-accelerates: "Accelerated for {id}"

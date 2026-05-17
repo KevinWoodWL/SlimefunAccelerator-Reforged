@@ -8,7 +8,40 @@ auto-update: true
 build-station: "Guizhan" # Expected "Guizhan" or "Blob"
 
 # Do not change this value unless you know what you are doing.
-config-version: C_20260515_1
+config-version: C_20260517_1
 
 # Do not change this value unless you know what you are doing.
 debug: false
+
+# Per-item circuit breaker. When a ticker overruns max-tick-time-micros
+# for `overrun-threshold` consecutive samples, the breaker trips and
+# that item is skipped for `cooldown-ticks` before a probe attempt.
+circuit-breaker:
+  enabled: true
+  # Microseconds. 5000us = 5ms. Set higher if your items are inherently slow.
+  max-tick-time-micros: 5000
+  # Consecutive overruns needed for the FIRST trip. After a trip,
+  # any single overrun re-trips immediately until recovery-samples
+  # clean ticks elapse.
+  overrun-threshold: 20
+  # Ticks to skip after tripping (1200 = 60s @ 20tps).
+  cooldown-ticks: 1200
+  # Consecutive clean (under threshold) samples needed to be marked
+  # fully recovered (so overrun-threshold applies again, not 1).
+  recovery-samples: 200
+  # EMA smoothing factor for the per-item moving average (0.01-0.9).
+  # Smaller = smoother, slower to react.
+  ema-alpha: 0.1
+
+# Throttle the accelerator when the server is already overloaded.
+load-aware:
+  enabled: true
+  # Below this TPS, accelerated rounds run every other call.
+  throttle-tps: 18.0
+  # Below this TPS, accelerated rounds are skipped entirely until TPS recovers.
+  skip-tps: 15.0
+
+# If a group's previous round is still marked running after
+# (period * group-timeout-multiplier) ticks, drop the queued
+# ticks and start a fresh round. Prevents indefinite wedge.
+group-timeout-multiplier: 5
