@@ -7,7 +7,7 @@ on:
 
 jobs:
   publish:
-    name: Upload build
+    name: Build and Release
     runs-on: ubuntu-latest
     if: contains(github.event.head_commit.message, '[ci skip]') == false
 
@@ -27,9 +27,25 @@ jobs:
       - name: Build with Maven
         run: mvn -B package -DskipTests
 
-      - name: Upload to Blob Builds
-        uses: WalshyDev/blob-builds/gh-action@main
+      - name: Read project version
+        id: pom
+        run: |
+          VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          SHORT_SHA=${GITHUB_SHA::7}
+          IS_SNAPSHOT=false
+          if [[ "$VERSION" == *SNAPSHOT* ]]; then IS_SNAPSHOT=true; fi
+          echo "version=${VERSION}"           >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHORT_SHA}"       >> "$GITHUB_OUTPUT"
+          echo "is_snapshot=${IS_SNAPSHOT}"   >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          project: SlimefunAcceleratorReforged
-          apiToken: ${{ secrets.BLOB_BUILDS_API_TOKEN }}
-          releaseNotes: ${{ github.event.head_commit.message }}
+          # SNAPSHOTs include the short SHA so every dev push gets a unique tag.
+          # Stable releases reuse the bare version tag (idempotent).
+          tag_name: ${{ steps.pom.outputs.is_snapshot == 'true' && format('build-{0}-{1}', steps.pom.outputs.version, steps.pom.outputs.short_sha) || format('v{0}', steps.pom.outputs.version) }}
+          name: ${{ steps.pom.outputs.is_snapshot == 'true' && format('{0} ({1})', steps.pom.outputs.version, steps.pom.outputs.short_sha) || format('v{0}', steps.pom.outputs.version) }}
+          body: ${{ github.event.head_commit.message }}
+          prerelease: ${{ steps.pom.outputs.is_snapshot == 'true' }}
+          make_latest: ${{ steps.pom.outputs.is_snapshot == 'false' && 'true' || 'false' }}
+          files: target/SlimefunAcceleratorReforged*.jar
