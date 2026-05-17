@@ -620,6 +620,9 @@ public class Accelerator implements Listener {
 
         if (isCNSlimefun()) {
             for (Map.Entry<String, Set<Location>> entry : ExtraTickerCNVersion.getAllTickLocations().entrySet()) {
+                if (!extraTickers.contains(entry.getKey())) {
+                    continue;
+                }
                 allTickerLocations.computeIfAbsent(entry.getKey(), k -> ConcurrentHashMap.newKeySet())
                         .addAll(entry.getValue());
             }
