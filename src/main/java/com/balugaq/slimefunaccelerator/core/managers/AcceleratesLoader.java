@@ -11,7 +11,9 @@ import me.mrCookieSlime.Slimefun.Objects.handlers.BlockTicker;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @UtilityClass
 public class AcceleratesLoader {
@@ -34,6 +36,7 @@ public class AcceleratesLoader {
     public static void loadAccelerates() {
         boolean configured = true;
         boolean configuredDifferentItem = false;
+        Map<NativeBypassKey, Integer> nativeBypassCounts = new HashMap<>();
         FileConfiguration configuration = SlimefunAccelerator.getInstance().getConfigManager().getBans();
         Debug.debug("Loading accelerates");
         for (String key : configuration.getKeys(false)) {
@@ -43,6 +46,7 @@ public class AcceleratesLoader {
         if (accelerates == null) {
             return;
         }
+        ConfigManager configManager = SlimefunAccelerator.getInstance().getConfigManager();
 
         for (String threadKey : accelerates.getKeys(false)) {
             ConfigurationSection groupSection = accelerates.getConfigurationSection(threadKey);
@@ -81,6 +85,10 @@ public class AcceleratesLoader {
                     invalidKey(ACCELERATES_KEY + "." + threadKey + "." + ITEMS_KEY, id);
                     continue;
                 }
+                if (isNativeBypassed(configManager, slimefunItem)) {
+                    recordNativeBypass(nativeBypassCounts, threadKey, slimefunItem);
+                    continue;
+                }
 
                 BlockTicker ticker = slimefunItem.getBlockTicker();
                 if (ticker == null) {
@@ -104,11 +112,24 @@ public class AcceleratesLoader {
                 if (excludes.contains(slimefunItem.getId().toUpperCase())) {
                     continue;
                 }
+                String addonName = getAddonName(slimefunItem);
+                if (addonName == null) {
+                    continue;
+                }
                 for (String addon : addons) {
-                    if (slimefunItem.getAddon().getName().equalsIgnoreCase(addon)) {
+                    if (addonName.equalsIgnoreCase(addon)) {
+                        if (isNativeBypassed(configManager, slimefunItem)) {
+                            recordNativeBypass(nativeBypassCounts, threadKey, slimefunItem);
+                            continue;
+                        }
+                        BlockTicker ticker = slimefunItem.getBlockTicker();
+                        if (ticker == null) {
+                            continue;
+                        }
+
                         Accelerates.addAccelerate(threadKey, slimefunItem.getId());
                         Accelerates.addAccelerateSettings(threadKey, enabled, async, delay, period, removeOriginalTicker, extraTickerEnabled, tickUnload, extraTickerDelay, extraTickerPeriod);
-                        Accelerates.getTickers().put(slimefunItem.getId(), slimefunItem.getBlockTicker());
+                        Accelerates.getTickers().put(slimefunItem.getId(), ticker);
                         SlimefunAccelerator.getInstance().getLogger().info(Lang.getMessage("load.added-accelerates", "id", slimefunItem.getId()));
                         configuredDifferentItem = true;
                     }
@@ -119,7 +140,54 @@ public class AcceleratesLoader {
         if (!configured && !configuredDifferentItem) {
             SlimefunAccelerator.getInstance().getLogger().warning(Lang.getMessage("load.no-configured-accelerates"));
         }
+
+        for (Map.Entry<NativeBypassKey, Integer> entry : nativeBypassCounts.entrySet()) {
+            NativeBypassKey key = entry.getKey();
+            SlimefunAccelerator.getInstance().getLogger().info(Lang.getMessage(
+                    "load.skipped-native-compat",
+                    "count", entry.getValue(),
+                    "addon", key.addon(),
+                    "group", key.group()));
+        }
     }
+
+    private static boolean isNativeBypassed(ConfigManager configManager, SlimefunItem slimefunItem) {
+        if (configManager.isNativeItemBypassed(slimefunItem.getId())) {
+            return true;
+        }
+        if (configManager.isNativeThrottleEnabled() && configManager.isNativeThrottleItem(slimefunItem.getId())) {
+            return true;
+        }
+
+        String addonName = getAddonName(slimefunItem);
+        if (addonName == null) {
+            return false;
+        }
+
+        return configManager.isNativeAddonBypassed(addonName)
+                || (configManager.isNativeThrottleEnabled() && configManager.isNativeThrottleAddon(addonName));
+    }
+
+    private static String getAddonName(SlimefunItem slimefunItem) {
+        if (slimefunItem.getAddon() == null || slimefunItem.getAddon().getName() == null) {
+            return null;
+        }
+
+        return slimefunItem.getAddon().getName();
+    }
+
+    private static void recordNativeBypass(
+            Map<NativeBypassKey, Integer> nativeBypassCounts,
+            String group,
+            SlimefunItem slimefunItem) {
+        String addon = getAddonName(slimefunItem);
+        if (addon == null) {
+            addon = "UNKNOWN";
+        }
+        nativeBypassCounts.merge(new NativeBypassKey(group, addon), 1, Integer::sum);
+    }
+
+    private record NativeBypassKey(String group, String addon) {}
 
     public static void invalidKey(String path, String value) {
         SlimefunAccelerator.getInstance().getLogger().severe(Lang.getMessage("load.invalid-accelerate-key"));

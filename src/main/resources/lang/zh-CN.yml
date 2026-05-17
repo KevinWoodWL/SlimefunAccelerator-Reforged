@@ -44,6 +44,10 @@ messages:
     failed-auto-update: "&c自动更新失败: {message}" # {message} = error message
     # {id} = item ID
     added-accelerates: "已加速 {id}"
+    # {count} = skipped item count, {addon} = addon name, {group} = accelerate group
+    skipped-native-compat: "兼容旁路: 已跳过 {count} 个来自 {addon} 的物品，组: {group}，保留 Slimefun 原生 ticker."
+    # {count} = wrapped item count, {divisor} = low-TPS throttle divisor
+    native-throttle-installed: "原生降频: 已包装 {count} 个兼容敏感物品，低 TPS 时最多降至 1/{divisor} 速度."
     no-configured-accelerates: "你还没有开始配置插件!"
     invalid-accelerate-key: "无效的物品: "
     # {path} = path to config file

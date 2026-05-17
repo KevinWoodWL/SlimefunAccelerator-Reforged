@@ -20,6 +20,8 @@
 - 新增 `/slimefunaccelerator enable` 和 `/slimefunaccelerator disable`，可在运行时启用/关闭加速器。
 - `/slimefunaccelerator disable` 会取消加速任务，并把机器 ticker 还原为 Slimefun 原始状态。
 - `/slimefunaccelerator reload` 现在只重载加速器配置和运行时，不再调用插件自身的 `onDisable/onEnable`。
+- 新增兼容旁路：MomoTech、MomoTechvOptimized、FinalTECH、FinalTECH-Changed 默认保留 Slimefun 原生 ticker，不进入加速器队列。
+- 新增可选原生降频：兼容敏感附属可以在原生 ticker 上按 TPS 降频，适合粘液 tick 过高时削峰。
 
 ## 配置建议
 
@@ -57,6 +59,36 @@ accelerates:
 ```
 
 如果某个附属出现并发报错，优先把对应加速组改为 `async: false`。
+
+### MomoTech / FinalTECH 兼容策略
+
+这类附属的机器常依赖原生 Slimefun tick 调用现场、菜单缓存和内部状态，不建议把它们放进加速器队列或异步执行。默认配置会让它们完全旁路：
+
+```yaml
+compatibility:
+  native-addons:
+    - "MomoTech"
+    - "MomoTechvOptimized"
+    - "FinalTECH"
+    - "FinalTECH-Changed"
+```
+
+如果它们仍然是粘液 tick 大头，可以开启原生降频。它不会把机器搬到异步线程，也不会进入加速器队列，只是在 Slimefun 原生 ticker 现场按 TPS 少跑部分 tick：
+
+```yaml
+compatibility:
+  native-throttle:
+    enabled: true
+    divisor: 4
+```
+
+默认逻辑：
+
+- TPS 正常时全速运行。
+- TPS 低于 `load-aware.throttle-tps` 时约 1/2 速度运行。
+- TPS 低于 `load-aware.skip-tps` 时约 1/`divisor` 速度运行。
+
+这能降低服务器压力，但代价是这些机器的实际工作速度会下降。
 
 ## 已知问题
 

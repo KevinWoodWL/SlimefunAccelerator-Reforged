@@ -2,6 +2,7 @@ package com.balugaq.slimefunaccelerator.core.listeners;
 
 import com.balugaq.slimefunaccelerator.api.AcceleratorSettings;
 import com.balugaq.slimefunaccelerator.api.utils.Accelerates;
+import com.balugaq.slimefunaccelerator.api.utils.Lang;
 import com.balugaq.slimefunaccelerator.api.utils.ReflectionUtil;
 import com.balugaq.slimefunaccelerator.core.managers.AcceleratesLoader;
 import com.balugaq.slimefunaccelerator.core.managers.ConfigManager;
@@ -10,11 +11,13 @@ import com.balugaq.slimefunaccelerator.core.services.RegionTaskScheduler;
 import com.balugaq.slimefunaccelerator.core.services.TickProfiler;
 import com.balugaq.slimefunaccelerator.implementation.SlimefunAccelerator;
 import com.xzavier0722.mc.plugin.slimefun4.storage.controller.SlimefunBlockData;
+import com.xzavier0722.mc.plugin.slimefun4.storage.controller.SlimefunUniversalData;
 import com.xzavier0722.mc.plugin.slimefun4.storage.util.StorageCacheUtils;
 import io.github.thebusybiscuit.slimefun4.api.events.BlockPlacerPlaceEvent;
 import io.github.thebusybiscuit.slimefun4.api.events.SlimefunItemRegistryFinalizedEvent;
 import io.github.thebusybiscuit.slimefun4.api.items.ItemState;
 import io.github.thebusybiscuit.slimefun4.api.items.SlimefunItem;
+import io.github.thebusybiscuit.slimefun4.implementation.Slimefun;
 import me.mrCookieSlime.CSCoreLibPlugin.Configuration.Config;
 import me.mrCookieSlime.Slimefun.Objects.handlers.BlockTicker;
 import me.mrCookieSlime.Slimefun.api.BlockStorage;
@@ -36,6 +39,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -57,6 +61,7 @@ public class Accelerator implements Listener {
     };
     private static final Map<Class<?>, Object> TIMEIT_CLASS_LOCKS = new ConcurrentHashMap<>(8);
     private static final Map<String, Integer> chunkBucketHint = new ConcurrentHashMap<>(16);
+    private static final Map<NativeThrottleKey, AtomicInteger> nativeThrottleCounters = new ConcurrentHashMap<>(16);
     private static volatile TickProfiler tickProfiler;
     private static volatile LoadMonitor loadMonitor;
     public static final Map<String, Set<Location>> allTickerLocations = new ConcurrentHashMap<>(16);
@@ -387,6 +392,51 @@ public class Accelerator implements Listener {
         task.run();
     }
 
+    private static boolean shouldNativeThrottle(ConfigManager configManager, SlimefunItem slimefunItem) {
+        if (!configManager.isNativeThrottleEnabled()) {
+            return false;
+        }
+
+        if (configManager.isNativeThrottleItem(slimefunItem.getId())) {
+            return true;
+        }
+
+        if (slimefunItem.getAddon() == null || slimefunItem.getAddon().getName() == null) {
+            return false;
+        }
+
+        return configManager.isNativeThrottleAddon(slimefunItem.getAddon().getName());
+    }
+
+    private static boolean shouldRunNativeThrottle(ConfigManager configManager, String itemId, Block block) {
+        LoadMonitor monitor = getLoadMonitor();
+        if (monitor != null && monitor.isEnabled()) {
+            LoadMonitor.Decision decision = monitor.decide();
+            if (decision == LoadMonitor.Decision.RUN) {
+                return true;
+            }
+            if (decision == LoadMonitor.Decision.HALVE) {
+                return shouldRunEvery(itemId, block, 2);
+            }
+        }
+
+        return shouldRunEvery(itemId, block, configManager.getNativeThrottleDivisor());
+    }
+
+    private static boolean shouldRunEvery(String itemId, Block block, int divisor) {
+        AtomicInteger counter = nativeThrottleCounters.computeIfAbsent(
+                NativeThrottleKey.from(itemId, block),
+                ignored -> new AtomicInteger());
+        return Math.floorMod(counter.incrementAndGet(), Math.max(2, divisor)) == 0;
+    }
+
+    private static void recordNativeThrottleSkip(String itemId) {
+        TickProfiler profiler = getTickProfiler();
+        if (profiler != null) {
+            profiler.recordSkipped(itemId);
+        }
+    }
+
     private static boolean isSlimefunTimeitTicker(BlockTicker ticker) {
         return TIMEIT_CLASS_CACHE.get(ticker.getClass());
     }
@@ -482,6 +532,17 @@ public class Accelerator implements Listener {
         }
     }
 
+    private record NativeThrottleKey(String itemId, UUID worldId, int blockX, int blockY, int blockZ) {
+        private static NativeThrottleKey from(String itemId, Block block) {
+            return new NativeThrottleKey(
+                    itemId,
+                    block.getWorld().getUID(),
+                    block.getX(),
+                    block.getY(),
+                    block.getZ());
+        }
+    }
+
     public static boolean isRunning() {
         return enabled.get();
     }
@@ -511,6 +572,7 @@ public class Accelerator implements Listener {
         int currentLifecycleId = lifecycleId.incrementAndGet();
         Accelerates.shutdown();
         AcceleratesLoader.loadAccelerates();
+        ConfigManager configManager = SlimefunAccelerator.getInstance().getConfigManager();
 
         Map<String, AcceleratorSettings> allSettings = new HashMap<>();
         Map<String, Set<SlimefunItem>> accelerates = Accelerates.getAccelerates();
@@ -618,6 +680,10 @@ public class Accelerator implements Listener {
             Accelerates.getTaskIds().put(group, taskId);
         }
 
+        if (configManager.isNativeThrottleEnabled()) {
+            installNativeThrottle(configManager);
+        }
+
         if (isCNSlimefun()) {
             for (Map.Entry<String, Set<Location>> entry : ExtraTickerCNVersion.getAllTickLocations().entrySet()) {
                 if (!extraTickers.contains(entry.getKey())) {
@@ -672,6 +738,98 @@ public class Accelerator implements Listener {
                     settings.getExtraTickerPeriod()
             ).getTaskId();
             Accelerates.getTaskIds().put(group + ":extra-ticker", taskId);
+        }
+    }
+
+    private static void installNativeThrottle(ConfigManager configManager) {
+        int installed = 0;
+        for (SlimefunItem slimefunItem : Slimefun.getRegistry().getAllSlimefunItems()) {
+            if (slimefunItem == null || !shouldNativeThrottle(configManager, slimefunItem)) {
+                continue;
+            }
+
+            BlockTicker blockTicker = slimefunItem.getBlockTicker();
+            if (blockTicker == null || originalTickers.containsKey(slimefunItem)) {
+                continue;
+            }
+
+            originalTickers.put(slimefunItem, blockTicker);
+            ItemState state = slimefunItem.getState();
+            ReflectionUtil.setValue(slimefunItem, SlimefunItem.class, "state", ItemState.UNREGISTERED);
+            if (isCNSlimefun()) {
+                slimefunItem.addItemHandler(new BlockTicker() {
+                    @Override
+                    public boolean isSynchronized() {
+                        return blockTicker.isSynchronized();
+                    }
+
+                    @Override
+                    public boolean isUniversal() {
+                        return blockTicker.isUniversal();
+                    }
+
+                    @Override
+                    public void uniqueTick() {
+                        blockTicker.uniqueTick();
+                    }
+
+                    @Override
+                    public void tick(Block block, SlimefunItem item, SlimefunBlockData config) {
+                        String itemId = item.getId();
+                        if (!shouldRunNativeThrottle(configManager, itemId, block)) {
+                            recordNativeThrottleSkip(itemId);
+                            return;
+                        }
+                        executeTicker(blockTicker, () -> blockTicker.tick(block, item, config));
+                    }
+
+                    @Override
+                    public void tick(Block block, SlimefunItem item, SlimefunUniversalData config) {
+                        String itemId = item.getId();
+                        if (!shouldRunNativeThrottle(configManager, itemId, block)) {
+                            recordNativeThrottleSkip(itemId);
+                            return;
+                        }
+                        executeTicker(blockTicker, () -> blockTicker.tick(block, item, config));
+                    }
+                });
+            } else {
+                slimefunItem.addItemHandler(new BlockTicker() {
+                    @Override
+                    public boolean isSynchronized() {
+                        return blockTicker.isSynchronized();
+                    }
+
+                    @Override
+                    public boolean isUniversal() {
+                        return blockTicker.isUniversal();
+                    }
+
+                    @Override
+                    public void uniqueTick() {
+                        blockTicker.uniqueTick();
+                    }
+
+                    @Override
+                    public void tick(Block block, SlimefunItem item, Config config) {
+                        String itemId = item.getId();
+                        if (!shouldRunNativeThrottle(configManager, itemId, block)) {
+                            recordNativeThrottleSkip(itemId);
+                            return;
+                        }
+                        executeTicker(blockTicker, () -> blockTicker.tick(block, item, config));
+                    }
+                });
+            }
+            ReflectionUtil.setValue(slimefunItem, SlimefunItem.class, "state", state);
+            installed++;
+        }
+
+        if (installed > 0) {
+            SlimefunAccelerator.getInstance().getLogger().info(Lang.getMessage(
+                    "load.native-throttle-installed",
+                    "count", installed,
+                    "divisor", configManager.getNativeThrottleDivisor()));
         }
     }
 
@@ -765,6 +923,7 @@ public class Accelerator implements Listener {
         asyncLocks.clear();
         allTickerLocations.clear();
         extraTickers.clear();
+        nativeThrottleCounters.clear();
         chunkBucketHint.clear();
         LoadMonitor monitor = loadMonitor;
         if (monitor != null) {

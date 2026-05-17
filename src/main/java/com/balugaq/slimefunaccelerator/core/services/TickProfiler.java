@@ -150,6 +150,14 @@ public final class TickProfiler {
         }
     }
 
+    public void recordSkipped(@NotNull String itemId) {
+        if (!enabled) {
+            return;
+        }
+
+        stats.computeIfAbsent(itemId, k -> new ItemStats()).skipped.incrementAndGet();
+    }
+
     private void recordSample(String itemId, ItemStats s, long elapsed, long nowNanos) {
         s.totalSamples.incrementAndGet();
         s.totalNanos.addAndGet(elapsed);

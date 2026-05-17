@@ -16,6 +16,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.logging.Level;
 
 @Getter
@@ -56,6 +60,15 @@ public class ConfigManager {
     // Per-group round timeout (since C_20260517_1).
     private final int GROUP_TIMEOUT_MULTIPLIER;
 
+    // Native compatibility bypass. Items from these addons are left on the
+    // original Slimefun ticker instead of being wrapped by the accelerator.
+    private final @NotNull Set<String> COMPATIBILITY_NATIVE_ADDONS;
+    private final @NotNull Set<String> COMPATIBILITY_NATIVE_ITEMS;
+    private final boolean COMPATIBILITY_NATIVE_THROTTLE_ENABLED;
+    private final int COMPATIBILITY_NATIVE_THROTTLE_DIVISOR;
+    private final @NotNull Set<String> COMPATIBILITY_NATIVE_THROTTLE_ADDONS;
+    private final @NotNull Set<String> COMPATIBILITY_NATIVE_THROTTLE_ITEMS;
+
     public ConfigManager(@NotNull JavaPlugin plugin) {
         this.plugin = plugin;
         this.config = YamlConfiguration.loadConfiguration(new File(plugin.getDataFolder(), CONFIG_PATH));
@@ -94,6 +107,43 @@ public class ConfigManager {
         this.LOAD_AWARE_SKIP_TPS = config.getDouble("load-aware.skip-tps", 15.0);
 
         this.GROUP_TIMEOUT_MULTIPLIER = Math.max(2, config.getInt("group-timeout-multiplier", 5));
+
+        this.COMPATIBILITY_NATIVE_ADDONS = loadUppercaseSet(
+                config,
+                "compatibility.native-addons",
+                List.of("MomoTech", "MomoTechvOptimized", "FinalTECH", "FinalTECH-Changed"));
+        this.COMPATIBILITY_NATIVE_ITEMS = loadUppercaseSet(
+                config,
+                "compatibility.native-items",
+                List.of());
+        this.COMPATIBILITY_NATIVE_THROTTLE_ENABLED =
+                config.getBoolean("compatibility.native-throttle.enabled", false);
+        this.COMPATIBILITY_NATIVE_THROTTLE_DIVISOR =
+                Math.max(2, config.getInt("compatibility.native-throttle.divisor", 2));
+        this.COMPATIBILITY_NATIVE_THROTTLE_ADDONS = loadUppercaseSet(
+                config,
+                "compatibility.native-throttle.addons",
+                List.of("MomoTech", "MomoTechvOptimized", "FinalTECH", "FinalTECH-Changed"));
+        this.COMPATIBILITY_NATIVE_THROTTLE_ITEMS = loadUppercaseSet(
+                config,
+                "compatibility.native-throttle.items",
+                List.of());
+    }
+
+    private static @NotNull Set<String> loadUppercaseSet(
+            @NotNull FileConfiguration config,
+            @NotNull String path,
+            @NotNull List<String> defaults) {
+        List<String> values = config.isList(path) ? config.getStringList(path) : defaults;
+        Set<String> normalized = new HashSet<>();
+        for (String value : values) {
+            if (value == null || value.isBlank()) {
+                continue;
+            }
+            normalized.add(value.trim().toUpperCase(Locale.ROOT));
+        }
+
+        return normalized;
     }
 
     private void setupDefaultConfig() {
@@ -196,4 +246,28 @@ public class ConfigManager {
     public double getLoadAwareSkipTps() { return LOAD_AWARE_SKIP_TPS; }
 
     public int getGroupTimeoutMultiplier() { return GROUP_TIMEOUT_MULTIPLIER; }
+
+    public boolean isNativeAddonBypassed(@NotNull String addonName) {
+        return COMPATIBILITY_NATIVE_ADDONS.contains(addonName.trim().toUpperCase(Locale.ROOT));
+    }
+
+    public boolean isNativeItemBypassed(@NotNull String itemId) {
+        return COMPATIBILITY_NATIVE_ITEMS.contains(itemId.trim().toUpperCase(Locale.ROOT));
+    }
+
+    public boolean isNativeThrottleEnabled() {
+        return COMPATIBILITY_NATIVE_THROTTLE_ENABLED;
+    }
+
+    public int getNativeThrottleDivisor() {
+        return COMPATIBILITY_NATIVE_THROTTLE_DIVISOR;
+    }
+
+    public boolean isNativeThrottleAddon(@NotNull String addonName) {
+        return COMPATIBILITY_NATIVE_THROTTLE_ADDONS.contains(addonName.trim().toUpperCase(Locale.ROOT));
+    }
+
+    public boolean isNativeThrottleItem(@NotNull String itemId) {
+        return COMPATIBILITY_NATIVE_THROTTLE_ITEMS.contains(itemId.trim().toUpperCase(Locale.ROOT));
+    }
 }

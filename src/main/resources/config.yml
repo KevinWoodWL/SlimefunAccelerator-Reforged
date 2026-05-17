@@ -8,7 +8,7 @@ auto-update: true
 build-station: "Guizhan" # Expected "Guizhan" or "Blob"
 
 # Do not change this value unless you know what you are doing.
-config-version: C_20260517_2
+config-version: C_20260517_3
 
 # Do not change this value unless you know what you are doing.
 debug: false
@@ -54,3 +54,31 @@ load-aware:
 # (period * group-timeout-multiplier) ticks, drop the queued
 # ticks and start a fresh round. Prevents indefinite wedge.
 group-timeout-multiplier: 5
+
+# Compatibility bypass.
+# Items from these addons/items will keep Slimefun's original ticker and will
+# not be wrapped, delayed, moved into async tasks, or region-scheduled by this
+# plugin. Keep MomoTech/FinalTECH here unless you are deliberately testing them.
+compatibility:
+  native-addons:
+    - "MomoTech"
+    - "MomoTechvOptimized"
+    - "FinalTECH"
+    - "FinalTECH-Changed"
+  native-items: []
+  # Optional native throttling for compatibility-sensitive addons.
+  # This keeps their Slimefun native ticker context, but skips some ticks when
+  # the accelerator runtime is enabled:
+  # - TPS >= load-aware.throttle-tps: full speed.
+  # - TPS < load-aware.throttle-tps: about 1/2 speed.
+  # - TPS < load-aware.skip-tps or load-aware is disabled: about 1/divisor speed.
+  # Use this only if these addons are still the main Slimefun tick cost.
+  native-throttle:
+    enabled: false
+    divisor: 4
+    addons:
+      - "MomoTech"
+      - "MomoTechvOptimized"
+      - "FinalTECH"
+      - "FinalTECH-Changed"
+    items: []

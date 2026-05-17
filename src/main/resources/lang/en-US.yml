@@ -43,6 +43,10 @@ messages:
   load:
     # {id} = item ID
     added-accelerates: "Accelerated for {id}"
+    # {count} = skipped item count, {addon} = addon name, {group} = accelerate group
+    skipped-native-compat: "Compatibility bypass: skipped {count} items from {addon} in group {group}; keeping Slimefun native ticker."
+    # {count} = wrapped item count, {divisor} = low-TPS throttle divisor
+    native-throttle-installed: "Native throttle: wrapped {count} compatibility-sensitive items; low-TPS speed can drop to 1/{divisor}."
     no-configured-accelerates: "You have not configured the SlimefunAccelerator plugin. Please check the example config.yml file."
     invalid-accelerate-key: "Invalid accelerate key in config.yml: "
     # {path} = path to config file
