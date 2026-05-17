@@ -174,7 +174,14 @@
         <dependency>
             <groupId>com.github.SlimefunGuguProject</groupId>
             <artifactId>Slimefun4</artifactId>
-            <version>38953fe13a</version>
+            <!--
+              JitPack purged the previous pin (38953fe13a). Recent HEAD commits
+              currently fail JitPack's build ("No build artifacts found").
+              a9ad6692da is the most recent commit JitPack has a successful jar
+              for (matches what master-SNAPSHOT resolves to as of 2026-05-17).
+              Bump deliberately when SlimefunGuguProject ships a newer green build.
+            -->
+            <version>a9ad6692da</version>
             <scope>provided</scope>
             <exclusions>
                 <exclusion>
