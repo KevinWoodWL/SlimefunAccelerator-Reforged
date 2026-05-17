@@ -8,24 +8,33 @@ auto-update: true
 build-station: "Guizhan" # Expected "Guizhan" or "Blob"
 
 # Do not change this value unless you know what you are doing.
-config-version: C_20260517_1
+config-version: C_20260517_2
 
 # Do not change this value unless you know what you are doing.
 debug: false
 
 # Per-item circuit breaker. When a ticker overruns max-tick-time-micros
-# for `overrun-threshold` consecutive samples, the breaker trips and
-# that item is skipped for `cooldown-ticks` before a probe attempt.
+# for `overrun-threshold` consecutive samples, the breaker trips. The
+# `action` decides whether the item is fully skipped or just throttled.
 circuit-breaker:
   enabled: true
-  # Microseconds. 5000us = 5ms. Set higher if your items are inherently slow.
-  max-tick-time-micros: 5000
+  # What to do during a trip:
+  #   throttle - let every Nth call through (default). Machine keeps
+  #              working, just slower. Players don't see "broken".
+  #   skip     - drop every call until cooldown expires. Most relief
+  #              for the server but the machine appears dead.
+  action: throttle
+  # In throttle mode, run 1 in every N ticks while tripped.
+  # 4 = quarter speed.
+  throttle-divisor: 4
+  # Microseconds. 10000us = 10ms. Set higher if your items are inherently slow.
+  max-tick-time-micros: 10000
   # Consecutive overruns needed for the FIRST trip. After a trip,
   # any single overrun re-trips immediately until recovery-samples
   # clean ticks elapse.
   overrun-threshold: 20
-  # Ticks to skip after tripping (1200 = 60s @ 20tps).
-  cooldown-ticks: 1200
+  # Ticks to wait before the breaker re-opens (600 = 30s @ 20tps).
+  cooldown-ticks: 600
   # Consecutive clean (under threshold) samples needed to be marked
   # fully recovered (so overrun-threshold applies again, not 1).
   recovery-samples: 200

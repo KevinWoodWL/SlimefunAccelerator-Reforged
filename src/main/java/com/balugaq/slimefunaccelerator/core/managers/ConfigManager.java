@@ -44,6 +44,9 @@ public class ConfigManager {
     private final long CIRCUIT_BREAKER_COOLDOWN_TICKS;
     private final int CIRCUIT_BREAKER_RECOVERY_SAMPLES;
     private final double CIRCUIT_BREAKER_EMA_ALPHA;
+    // Trip action / throttle (added in C_20260517_2).
+    private final @NotNull String CIRCUIT_BREAKER_ACTION;
+    private final int CIRCUIT_BREAKER_THROTTLE_DIVISOR;
 
     // Load-aware throttling (server TPS, since C_20260517_1).
     private final boolean LOAD_AWARE_ENABLED;
@@ -77,11 +80,14 @@ public class ConfigManager {
         this.LANGUAGE = config.getString("language", "zh-CN");
 
         this.CIRCUIT_BREAKER_ENABLED = config.getBoolean("circuit-breaker.enabled", true);
-        this.CIRCUIT_BREAKER_MAX_MICROS = config.getLong("circuit-breaker.max-tick-time-micros", 5000L);
+        this.CIRCUIT_BREAKER_MAX_MICROS = config.getLong("circuit-breaker.max-tick-time-micros", 10000L);
         this.CIRCUIT_BREAKER_OVERRUN_THRESHOLD = config.getInt("circuit-breaker.overrun-threshold", 20);
-        this.CIRCUIT_BREAKER_COOLDOWN_TICKS = config.getLong("circuit-breaker.cooldown-ticks", 1200L);
+        this.CIRCUIT_BREAKER_COOLDOWN_TICKS = config.getLong("circuit-breaker.cooldown-ticks", 600L);
         this.CIRCUIT_BREAKER_RECOVERY_SAMPLES = config.getInt("circuit-breaker.recovery-samples", 200);
         this.CIRCUIT_BREAKER_EMA_ALPHA = config.getDouble("circuit-breaker.ema-alpha", 0.1);
+        this.CIRCUIT_BREAKER_ACTION = config.getString("circuit-breaker.action", "throttle");
+        this.CIRCUIT_BREAKER_THROTTLE_DIVISOR = Math.max(2,
+                config.getInt("circuit-breaker.throttle-divisor", 4));
 
         this.LOAD_AWARE_ENABLED = config.getBoolean("load-aware.enabled", true);
         this.LOAD_AWARE_THROTTLE_TPS = config.getDouble("load-aware.throttle-tps", 18.0);
@@ -182,6 +188,8 @@ public class ConfigManager {
     public long getCircuitBreakerCooldownTicks() { return CIRCUIT_BREAKER_COOLDOWN_TICKS; }
     public int getCircuitBreakerRecoverySamples() { return CIRCUIT_BREAKER_RECOVERY_SAMPLES; }
     public double getCircuitBreakerEmaAlpha() { return CIRCUIT_BREAKER_EMA_ALPHA; }
+    public @NotNull String getCircuitBreakerAction() { return CIRCUIT_BREAKER_ACTION; }
+    public int getCircuitBreakerThrottleDivisor() { return CIRCUIT_BREAKER_THROTTLE_DIVISOR; }
 
     public boolean isLoadAwareEnabled() { return LOAD_AWARE_ENABLED; }
     public double getLoadAwareThrottleTps() { return LOAD_AWARE_THROTTLE_TPS; }

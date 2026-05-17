@@ -98,6 +98,14 @@ public class Accelerator implements Listener {
                 return tickProfiler;
             }
             ConfigManager cm = plugin.getConfigManager();
+            TickProfiler.Action action;
+            try {
+                action = TickProfiler.Action.valueOf(cm.getCircuitBreakerAction().trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                plugin.getLogger().warning("Unknown circuit-breaker.action '"
+                        + cm.getCircuitBreakerAction() + "', falling back to THROTTLE.");
+                action = TickProfiler.Action.THROTTLE;
+            }
             tickProfiler = new TickProfiler(
                     cm.isCircuitBreakerEnabled(),
                     cm.getCircuitBreakerMaxMicros(),
@@ -105,6 +113,8 @@ public class Accelerator implements Listener {
                     cm.getCircuitBreakerCooldownTicks(),
                     cm.getCircuitBreakerRecoverySamples(),
                     cm.getCircuitBreakerEmaAlpha(),
+                    action,
+                    cm.getCircuitBreakerThrottleDivisor(),
                     plugin.getLogger());
             return tickProfiler;
         }
@@ -301,11 +311,12 @@ public class Accelerator implements Listener {
         if (ticker == null) {
             return;
         }
-        // Cheap fast-path: if the breaker is currently open we can skip the
-        // BlockStorage lookup and the runTicker plumbing entirely.
+        // Cheap fast-path: in SKIP mode if the breaker is open we can skip
+        // the BlockStorage lookup entirely. In THROTTLE mode we still need
+        // to enter measure() so it can let every Nth tripped call through.
         String itemId = item.getId();
         TickProfiler profiler = getTickProfiler();
-        if (profiler != null && profiler.isTripped(itemId, System.nanoTime())) {
+        if (profiler != null && profiler.isHardSkipped(itemId, System.nanoTime())) {
             return;
         }
         BlockTicker executionTicker = getExecutionTicker(settings, ticker);
