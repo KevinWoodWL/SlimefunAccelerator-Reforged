@@ -26,6 +26,7 @@ import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.jetbrains.annotations.NotNull;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -39,6 +40,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 @SuppressWarnings("deprecation")
 public class Accelerator implements Listener {
     public static final int EXTRA_TICKER_FLAG = 0b00000001;
+    private static final String SLIMEFUN_TIMEIT_TICKER = "com.balugaq.sftimeit.api.MonitoringBlockTicker";
+    private static final Object SLIMEFUN_TIMEIT_LOCK = new Object();
     public static final Map<String, Set<Location>> allTickerLocations = new ConcurrentHashMap<>(16);
     public static final Map<SlimefunItem, BlockTicker> originalTickers = new ConcurrentHashMap<>(16);
     public static final boolean isCNSlimefun = SlimefunAccelerator.getInstance().getIntegrationManager().isCNSlimefun();
@@ -60,6 +63,12 @@ public class Accelerator implements Listener {
         }
 
         try {
+            AcceleratorSettings settings = Accelerates.getAccelerateSettings().get(group);
+            if (settings == null) {
+                groupRunning.set(false);
+                return;
+            }
+
             for (SlimefunItem slimefunItem : items) {
                 if (slimefunItem.isDisabled()) {
                     continue;
@@ -69,13 +78,7 @@ public class Accelerator implements Listener {
                     continue;
                 }
 
-                blockTicker.uniqueTick();
-            }
-
-            AcceleratorSettings settings = Accelerates.getAccelerateSettings().get(group);
-            if (settings == null) {
-                groupRunning.set(false);
-                return;
+                getExecutionTicker(settings, blockTicker).uniqueTick();
             }
 
             Set<Location> queue = tickLocations.put(group, ConcurrentHashMap.newKeySet());
@@ -150,6 +153,7 @@ public class Accelerator implements Listener {
         if (ticker == null) {
             return;
         }
+        BlockTicker executionTicker = getExecutionTicker(settings, ticker);
 
         Block block = location.getBlock();
         if (isCNSlimefun) {
@@ -159,7 +163,7 @@ public class Accelerator implements Listener {
                 return;
             }
 
-            runTicker(settings, ticker, () -> ticker.tick(block, item, config), asyncTasks);
+            runTicker(settings, executionTicker, () -> executionTicker.tick(block, item, config), asyncTasks);
         } else {
             Config config = BlockStorage.getLocationInfo(location);
             if (config == null) {
@@ -167,17 +171,83 @@ public class Accelerator implements Listener {
                 return;
             }
 
-            runTicker(settings, ticker, () -> ticker.tick(block, item, config), asyncTasks);
+            runTicker(settings, executionTicker, () -> executionTicker.tick(block, item, config), asyncTasks);
         }
+    }
+
+    private static BlockTicker getExecutionTicker(AcceleratorSettings settings, BlockTicker ticker) {
+        if (!settings.isAsync() || !isSlimefunTimeitTicker(ticker)) {
+            return ticker;
+        }
+
+        BlockTicker unwrapped = unwrapTicker(ticker, new HashSet<>());
+        if (unwrapped != null && unwrapped != ticker) {
+            return unwrapped;
+        }
+
+        return ticker;
     }
 
     private static void runTicker(AcceleratorSettings settings, BlockTicker ticker, Runnable task, List<Runnable> asyncTasks) {
         if (settings.isAsync() && !ticker.isSynchronized()) {
-            asyncTasks.add(task);
+            asyncTasks.add(() -> executeTicker(ticker, task));
+            return;
+        }
+
+        executeTicker(ticker, task);
+    }
+
+    private static void executeTicker(BlockTicker ticker, Runnable task) {
+        if (isSlimefunTimeitTicker(ticker)) {
+            synchronized (SLIMEFUN_TIMEIT_LOCK) {
+                task.run();
+            }
             return;
         }
 
         task.run();
+    }
+
+    private static boolean isSlimefunTimeitTicker(BlockTicker ticker) {
+        Class<?> clazz = ticker.getClass();
+        while (clazz != null) {
+            if (SLIMEFUN_TIMEIT_TICKER.equals(clazz.getName())) {
+                return true;
+            }
+            clazz = clazz.getSuperclass();
+        }
+        return false;
+    }
+
+    private static BlockTicker unwrapTicker(BlockTicker ticker, Set<Object> visited) {
+        if (!visited.add(ticker)) {
+            return ticker;
+        }
+
+        Class<?> clazz = ticker.getClass();
+        while (clazz != null) {
+            for (Field field : clazz.getDeclaredFields()) {
+                if (!BlockTicker.class.isAssignableFrom(field.getType())) {
+                    continue;
+                }
+
+                try {
+                    field.setAccessible(true);
+                    Object value = field.get(ticker);
+                    if (value instanceof BlockTicker nested && nested != ticker) {
+                        if (isSlimefunTimeitTicker(nested)) {
+                            return unwrapTicker(nested, visited);
+                        }
+                        return nested;
+                    }
+                } catch (IllegalAccessException ignored) {
+                    // Keep the wrapped ticker if the monitor implementation changes.
+                }
+            }
+            clazz = clazz.getSuperclass();
+        }
+
+        return ticker;
     }
 
     private static void runAsyncTickerBatch(String group, List<Runnable> asyncTasks, AtomicInteger pendingTasks, AtomicBoolean groupRunning, int expectedLifecycleId) {
@@ -563,17 +633,6 @@ public class Accelerator implements Listener {
         }
     }
 
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onBlockBreak(@NotNull BlockBreakEvent event) {
-        if (!isRunning()) {
-            return;
-        }
-        Location loc = event.getBlock().getLocation();
-        for (Set<Location> locations : allTickerLocations.values()) {
-            locations.remove(loc);
-        }
-    }
-
     @EventHandler
     public void onBlockPlacerPlace(@NotNull BlockPlacerPlaceEvent event) {
         if (!isRunning()) {
@@ -584,6 +643,39 @@ public class Accelerator implements Listener {
         if (slimefunItem != null) {
             allTickerLocations.computeIfAbsent(slimefunItem.getId(), k -> ConcurrentHashMap.newKeySet())
                     .add(event.getBlockPlacer().getLocation());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBlockBreak(@NotNull BlockBreakEvent event) {
+        if (!isRunning()) {
+            return;
+        }
+
+        Location location = event.getBlock().getLocation();
+
+        if (isCNSlimefun) {
+            SlimefunBlockData config = StorageCacheUtils.getBlock(location);
+            if (config != null) {
+                Set<Location> locations = allTickerLocations.get(config.getSfId());
+                if (locations != null) {
+                    locations.remove(location);
+                }
+                return;
+            }
+        } else {
+            Config config = BlockStorage.getLocationInfo(location);
+            if (config != null) {
+                Set<Location> locations = allTickerLocations.get(config.getString("id"));
+                if (locations != null) {
+                    locations.remove(location);
+                }
+                return;
+            }
+        }
+
+        for (Set<Location> locations : allTickerLocations.values()) {
+            locations.remove(location);
         }
     }
 }
