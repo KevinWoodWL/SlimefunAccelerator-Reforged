@@ -44,13 +44,27 @@ public class Accelerator implements Listener {
     private static final Object SLIMEFUN_TIMEIT_LOCK = new Object();
     public static final Map<String, Set<Location>> allTickerLocations = new ConcurrentHashMap<>(16);
     public static final Map<SlimefunItem, BlockTicker> originalTickers = new ConcurrentHashMap<>(16);
-    public static final boolean isCNSlimefun = SlimefunAccelerator.getInstance().getIntegrationManager().isCNSlimefun();
     public static final Map<String, AtomicBoolean> running = new ConcurrentHashMap<>(16);
     public static final Map<String, Set<Location>> tickLocations = new ConcurrentHashMap<>(16);
     public static final Map<String, Object> asyncLocks = new ConcurrentHashMap<>(16);
-    public static final Set<String> extraTickers = new HashSet<>(16);
+    public static final Set<String> extraTickers = ConcurrentHashMap.newKeySet(16);
     private static final AtomicBoolean enabled = new AtomicBoolean(false);
     private static final AtomicInteger lifecycleId = new AtomicInteger(0);
+    private static volatile Boolean cnSlimefunCached;
+
+    public static boolean isCNSlimefun() {
+        Boolean cached = cnSlimefunCached;
+        if (cached != null) {
+            return cached;
+        }
+        SlimefunAccelerator plugin = SlimefunAccelerator.getInstance();
+        if (plugin == null) {
+            return false;
+        }
+        boolean resolved = plugin.getIntegrationManager().isCNSlimefun();
+        cnSlimefunCached = resolved;
+        return resolved;
+    }
 
     private static void accelerate(String group, Set<SlimefunItem> items, int expectedLifecycleId) {
         if (!isActiveLifecycle(expectedLifecycleId)) {
@@ -108,17 +122,27 @@ public class Accelerator implements Listener {
             for (Map.Entry<ChunkPosition, Set<Location>> entry : locationsByChunk.entrySet()) {
                 ChunkPosition chunk = entry.getKey();
                 Set<Location> locations = entry.getValue();
-                RegionTaskScheduler.execute(plugin, chunk.world(), chunk.chunkX(), chunk.chunkZ(), () -> {
-                    try {
-                        if (isActiveLifecycle(expectedLifecycleId)) {
-                            tickChunk(group, settings, locations, pendingTasks, groupRunning, expectedLifecycleId);
+                try {
+                    RegionTaskScheduler.execute(plugin, chunk.world(), chunk.chunkX(), chunk.chunkZ(), () -> {
+                        try {
+                            if (isActiveLifecycle(expectedLifecycleId)) {
+                                tickChunk(group, settings, locations, pendingTasks, groupRunning, expectedLifecycleId);
+                            }
+                        } finally {
+                            if (pendingTasks.decrementAndGet() == 0) {
+                                groupRunning.set(false);
+                            }
                         }
-                    } finally {
-                        if (pendingTasks.decrementAndGet() == 0) {
-                            groupRunning.set(false);
-                        }
+                    });
+                } catch (RuntimeException scheduleFailure) {
+                    // RegionTaskScheduler.execute rejected synchronously: balance the counter so
+                    // the next round can run. Swallow so other chunks still get scheduled.
+                    if (pendingTasks.decrementAndGet() == 0) {
+                        groupRunning.set(false);
                     }
-                });
+                    plugin.getLogger().log(java.util.logging.Level.WARNING,
+                            "Failed to schedule chunk tick for group '" + group + "'", scheduleFailure);
+                }
             }
         } catch (RuntimeException exception) {
             groupRunning.set(false);
@@ -144,7 +168,7 @@ public class Accelerator implements Listener {
             return;
         }
 
-        SlimefunItem item = isCNSlimefun ? StorageCacheUtils.getSfItem(location) : BlockStorage.check(location);
+        SlimefunItem item = isCNSlimefun() ? StorageCacheUtils.getSfItem(location) : BlockStorage.check(location);
         if (item == null || item.isDisabledIn(world)) {
             return;
         }
@@ -156,7 +180,7 @@ public class Accelerator implements Listener {
         BlockTicker executionTicker = getExecutionTicker(settings, ticker);
 
         Block block = location.getBlock();
-        if (isCNSlimefun) {
+        if (isCNSlimefun()) {
             SlimefunBlockData config = StorageCacheUtils.getBlock(location);
             if (config == null) {
                 removeExtraTickerLocation(item.getId(), location);
@@ -357,6 +381,11 @@ public class Accelerator implements Listener {
                 for (SlimefunItem slimefunItem : items) {
                     extraTickers.add(slimefunItem.getId());
                 }
+            } else if (settings.isRemoveOriginalTicker()) {
+                SlimefunAccelerator.getInstance().getLogger().warning(
+                        "Group '" + group + "': remove-original-ticker=true with extra-ticker.enabled=false. "
+                                + "Placed blocks of this group will NEVER tick — set extra-ticker.enabled=true "
+                                + "or remove-original-ticker=false.");
             }
 
             for (SlimefunItem slimefunItem : items) {
@@ -368,7 +397,7 @@ public class Accelerator implements Listener {
                 ItemState state = slimefunItem.getState();
                 ReflectionUtil.setValue(slimefunItem, SlimefunItem.class, "state", ItemState.UNREGISTERED);
 
-                if (isCNSlimefun) {
+                if (isCNSlimefun()) {
                     if (settings.isRemoveOriginalTicker()) {
                         slimefunItem.addItemHandler(new BlockTicker() {
                             @Override
@@ -441,7 +470,7 @@ public class Accelerator implements Listener {
             Accelerates.getTaskIds().put(group, taskId);
         }
 
-        if (isCNSlimefun) {
+        if (isCNSlimefun()) {
             for (Map.Entry<String, Set<Location>> entry : ExtraTickerCNVersion.getAllTickLocations().entrySet()) {
                 allTickerLocations.computeIfAbsent(entry.getKey(), k -> ConcurrentHashMap.newKeySet())
                         .addAll(entry.getValue());
@@ -610,40 +639,46 @@ public class Accelerator implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onBlockPlace(@NotNull BlockPlaceEvent event) {
-        if (!isRunning()) {
+        if (!isRunning() || extraTickers.isEmpty()) {
             return;
         }
 
-        if (isCNSlimefun) {
+        String id;
+        if (isCNSlimefun()) {
             SlimefunBlockData config = StorageCacheUtils.getBlock(event.getBlock().getLocation());
             if (config == null) {
                 return;
             }
-
-            allTickerLocations.computeIfAbsent(config.getSfId(), k -> ConcurrentHashMap.newKeySet())
-                    .add(event.getBlock().getLocation());
+            id = config.getSfId();
         } else {
             Config config = BlockStorage.getLocationInfo(event.getBlock().getLocation());
             if (config == null) {
                 return;
             }
-
-            allTickerLocations.computeIfAbsent(config.getString("id"), k -> ConcurrentHashMap.newKeySet())
-                    .add(event.getBlock().getLocation());
+            id = config.getString("id");
         }
+
+        if (id == null || !extraTickers.contains(id)) {
+            return;
+        }
+
+        allTickerLocations.computeIfAbsent(id, k -> ConcurrentHashMap.newKeySet())
+                .add(event.getBlock().getLocation());
     }
 
     @EventHandler
     public void onBlockPlacerPlace(@NotNull BlockPlacerPlaceEvent event) {
-        if (!isRunning()) {
+        if (!isRunning() || extraTickers.isEmpty()) {
             return;
         }
 
         SlimefunItem slimefunItem = SlimefunItem.getByItem(event.getItemStack());
-        if (slimefunItem != null) {
-            allTickerLocations.computeIfAbsent(slimefunItem.getId(), k -> ConcurrentHashMap.newKeySet())
-                    .add(event.getBlockPlacer().getLocation());
+        if (slimefunItem == null || !extraTickers.contains(slimefunItem.getId())) {
+            return;
         }
+
+        allTickerLocations.computeIfAbsent(slimefunItem.getId(), k -> ConcurrentHashMap.newKeySet())
+                .add(event.getBlockPlacer().getLocation());
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -654,7 +689,7 @@ public class Accelerator implements Listener {
 
         Location location = event.getBlock().getLocation();
 
-        if (isCNSlimefun) {
+        if (isCNSlimefun()) {
             SlimefunBlockData config = StorageCacheUtils.getBlock(location);
             if (config != null) {
                 Set<Location> locations = allTickerLocations.get(config.getSfId());
