@@ -41,7 +41,19 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class Accelerator implements Listener {
     public static final int EXTRA_TICKER_FLAG = 0b00000001;
     private static final String SLIMEFUN_TIMEIT_TICKER = "com.balugaq.sftimeit.api.MonitoringBlockTicker";
-    private static final Object SLIMEFUN_TIMEIT_LOCK = new Object();
+    private static final ClassValue<Boolean> TIMEIT_CLASS_CACHE = new ClassValue<Boolean>() {
+        @Override
+        protected Boolean computeValue(Class<?> type) {
+            for (Class<?> c = type; c != null; c = c.getSuperclass()) {
+                if (SLIMEFUN_TIMEIT_TICKER.equals(c.getName())) {
+                    return Boolean.TRUE;
+                }
+            }
+            return Boolean.FALSE;
+        }
+    };
+    private static final Map<Class<?>, Object> TIMEIT_CLASS_LOCKS = new ConcurrentHashMap<>(8);
+    private static final Map<String, Integer> chunkBucketHint = new ConcurrentHashMap<>(16);
     public static final Map<String, Set<Location>> allTickerLocations = new ConcurrentHashMap<>(16);
     public static final Map<SlimefunItem, BlockTicker> originalTickers = new ConcurrentHashMap<>(16);
     public static final Map<String, AtomicBoolean> running = new ConcurrentHashMap<>(16);
@@ -101,7 +113,9 @@ public class Accelerator implements Listener {
                 return;
             }
 
-            Map<ChunkPosition, Set<Location>> locationsByChunk = new HashMap<>();
+            int hint = chunkBucketHint.getOrDefault(group, 16);
+            // HashMap needs ~1.5x capacity for load factor 0.75.
+            Map<ChunkPosition, Set<Location>> locationsByChunk = new HashMap<>(Math.max(16, hint + (hint >> 1)));
             for (Location location : queue) {
                 if (location == null || location.getWorld() == null) {
                     continue;
@@ -117,6 +131,7 @@ public class Accelerator implements Listener {
                 return;
             }
 
+            chunkBucketHint.put(group, locationsByChunk.size());
             SlimefunAccelerator plugin = SlimefunAccelerator.getInstance();
             AtomicInteger pendingTasks = new AtomicInteger(locationsByChunk.size());
             for (Map.Entry<ChunkPosition, Set<Location>> entry : locationsByChunk.entrySet()) {
@@ -222,8 +237,10 @@ public class Accelerator implements Listener {
     }
 
     private static void executeTicker(BlockTicker ticker, Runnable task) {
-        if (isSlimefunTimeitTicker(ticker)) {
-            synchronized (SLIMEFUN_TIMEIT_LOCK) {
+        Class<?> clazz = ticker.getClass();
+        if (TIMEIT_CLASS_CACHE.get(clazz)) {
+            Object lock = TIMEIT_CLASS_LOCKS.computeIfAbsent(clazz, k -> new Object());
+            synchronized (lock) {
                 task.run();
             }
             return;
@@ -233,14 +250,7 @@ public class Accelerator implements Listener {
     }
 
     private static boolean isSlimefunTimeitTicker(BlockTicker ticker) {
-        Class<?> clazz = ticker.getClass();
-        while (clazz != null) {
-            if (SLIMEFUN_TIMEIT_TICKER.equals(clazz.getName())) {
-                return true;
-            }
-            clazz = clazz.getSuperclass();
-        }
-        return false;
+        return TIMEIT_CLASS_CACHE.get(ticker.getClass());
     }
 
     private static BlockTicker unwrapTicker(BlockTicker ticker, Set<Object> visited) {
@@ -614,6 +624,7 @@ public class Accelerator implements Listener {
         asyncLocks.clear();
         allTickerLocations.clear();
         extraTickers.clear();
+        chunkBucketHint.clear();
     }
 
     public static void rollback() {
