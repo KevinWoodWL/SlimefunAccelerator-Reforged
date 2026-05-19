@@ -220,7 +220,7 @@ public class Accelerator implements Listener {
         try {
 
             for (SlimefunItem slimefunItem : items) {
-                if (slimefunItem.isDisabled()) {
+                if (slimefunItem == null || slimefunItem.isDisabled()) {
                     continue;
                 }
                 BlockTicker blockTicker = Accelerates.getTickers().get(slimefunItem.getId());
@@ -228,7 +228,12 @@ public class Accelerator implements Listener {
                     continue;
                 }
 
-                getExecutionTicker(settings, blockTicker).uniqueTick();
+                try {
+                    getExecutionTicker(settings, blockTicker).uniqueTick();
+                } catch (Exception e) {
+                    SlimefunAccelerator.getInstance().getLogger().warning(
+                            "uniqueTick() threw an exception for item '" + slimefunItem.getId() + "': " + e);
+                }
             }
 
             Set<Location> queue = tickLocations.put(group, ConcurrentHashMap.newKeySet());

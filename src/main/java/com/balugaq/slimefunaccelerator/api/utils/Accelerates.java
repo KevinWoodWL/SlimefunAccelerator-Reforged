@@ -32,6 +32,9 @@ public class Accelerates {
 
     public static void addAccelerate(String group, @NotNull String id) {
         SlimefunItem item = SlimefunItem.getById(id);
+        if (item == null) {
+            return;
+        }
         if (!accelerates.containsKey(group)) {
             accelerates.put(group, new HashSet<>());
         }
