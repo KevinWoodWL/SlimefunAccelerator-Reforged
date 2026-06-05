@@ -22,6 +22,7 @@
 - `/slimefunaccelerator reload` 现在只重载加速器配置和运行时，不再调用插件自身的 `onDisable/onEnable`。
 - 新增兼容旁路：MomoTech、MomoTechvOptimized、FinalTECH、FinalTECH-Changed 默认保留 Slimefun 原生 ticker，不进入加速器队列。
 - 新增可选原生降频：兼容敏感附属可以在原生 ticker 上按 TPS 降频，适合粘液 tick 过高时削峰。
+- 新增 RykenSlimeCustomizer 项目兼容，可通过 `rsc-projects` 按自定义项目 ID 加速。
 
 ## 配置建议
 
@@ -59,6 +60,32 @@ accelerates:
 ```
 
 如果某个附属出现并发报错，优先把对应加速组改为 `async: false`。
+
+### RykenSlimeCustomizer 兼容
+
+RykenSlimeCustomizer / RykenSlimefunCustomizer 的自定义物品由 RSC 自己的项目系统管理，不能只靠普通 `addons:` 精确匹配。需要按 RSC 项目 ID 配置：
+
+```yaml
+accelerates:
+  rsc_custom:
+    enabled: true
+    async: false
+    period: 20
+    delay: 20
+    addons: []
+    rsc-projects:
+      - "example"
+    items: []
+    excludes: []
+    remove-original-ticker: false
+```
+
+说明：
+
+- `rsc-projects` 填写 `plugins/RykenSlimefunCustomizer/addons/<项目>/info.yml` 里的 `id`。
+- 配置了 `rsc-projects` 的加速组会强制同步执行，即使写了 `async: true` 也会被改为同步。
+- 建议 RSC 自定义项目单独放一个加速组，不要和 Networks 这类异步组混在一起。
+- RSC 执行自身 reload 后会重新注册自定义物品，需要再执行 `/slimefunaccelerator reload` 让加速器重新扫描。
 
 ### MomoTech / FinalTECH 兼容策略
 

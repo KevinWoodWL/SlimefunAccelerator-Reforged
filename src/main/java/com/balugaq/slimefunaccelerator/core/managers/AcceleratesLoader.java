@@ -3,6 +3,7 @@ package com.balugaq.slimefunaccelerator.core.managers;
 import com.balugaq.slimefunaccelerator.api.utils.Accelerates;
 import com.balugaq.slimefunaccelerator.api.utils.Debug;
 import com.balugaq.slimefunaccelerator.api.utils.Lang;
+import com.balugaq.slimefunaccelerator.core.services.RykenSlimeCustomizerIntegration;
 import com.balugaq.slimefunaccelerator.implementation.SlimefunAccelerator;
 import io.github.thebusybiscuit.slimefun4.api.items.SlimefunItem;
 import io.github.thebusybiscuit.slimefun4.implementation.Slimefun;
@@ -14,6 +15,7 @@ import org.bukkit.configuration.file.FileConfiguration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @UtilityClass
 public class AcceleratesLoader {
@@ -23,6 +25,7 @@ public class AcceleratesLoader {
     public static final String DELAY_KEY = "delay";
     public static final String PERIOD_KEY = "period";
     public static final String ADDONS_KEY = "addons";
+    public static final String RSC_PROJECTS_KEY = "rsc-projects";
     public static final String ITEMS_KEY = "items";
     public static final String EXCLUDE_KEY = "excludes";
     public static final String REMOVE_ORIGINAL_TICKER_KEY = "remove-original-ticker";
@@ -67,6 +70,15 @@ public class AcceleratesLoader {
                 continue;
             }
 
+            List<String> rscProjects = groupSection.getStringList(RSC_PROJECTS_KEY);
+            boolean effectiveAsync = async;
+            if (!rscProjects.isEmpty() && async) {
+                effectiveAsync = false;
+                SlimefunAccelerator.getInstance().getLogger().warning(Lang.getMessage(
+                        "load.rsc-force-sync",
+                        "group", threadKey));
+            }
+
             List<String> excludes = groupSection.getStringList(EXCLUDE_KEY);
             excludes.replaceAll(String::toUpperCase);
             List<String> items = groupSection.getStringList(ITEMS_KEY);
@@ -97,7 +109,7 @@ public class AcceleratesLoader {
                 }
 
                 Accelerates.addAccelerate(threadKey, id);
-                Accelerates.addAccelerateSettings(threadKey, enabled, async, delay, period, removeOriginalTicker, extraTickerEnabled, tickUnload, extraTickerDelay, extraTickerPeriod);
+                Accelerates.addAccelerateSettings(threadKey, enabled, effectiveAsync, delay, period, removeOriginalTicker, extraTickerEnabled, tickUnload, extraTickerDelay, extraTickerPeriod);
                 Accelerates.getTickers().put(id, ticker);
                 SlimefunAccelerator.getInstance().getLogger().info(Lang.getMessage("load.added-accelerates", "id", id));
                 configuredDifferentItem = true;
@@ -128,13 +140,30 @@ public class AcceleratesLoader {
                         }
 
                         Accelerates.addAccelerate(threadKey, slimefunItem.getId());
-                        Accelerates.addAccelerateSettings(threadKey, enabled, async, delay, period, removeOriginalTicker, extraTickerEnabled, tickUnload, extraTickerDelay, extraTickerPeriod);
+                        Accelerates.addAccelerateSettings(threadKey, enabled, effectiveAsync, delay, period, removeOriginalTicker, extraTickerEnabled, tickUnload, extraTickerDelay, extraTickerPeriod);
                         Accelerates.getTickers().put(slimefunItem.getId(), ticker);
                         SlimefunAccelerator.getInstance().getLogger().info(Lang.getMessage("load.added-accelerates", "id", slimefunItem.getId()));
                         configuredDifferentItem = true;
                     }
                 }
             }
+
+            configuredDifferentItem = loadRykenSlimeCustomizerProjects(
+                    threadKey,
+                    rscProjects,
+                    excludes,
+                    enabled,
+                    effectiveAsync,
+                    delay,
+                    period,
+                    removeOriginalTicker,
+                    extraTickerEnabled,
+                    tickUnload,
+                    extraTickerDelay,
+                    extraTickerPeriod,
+                    configManager,
+                    nativeBypassCounts)
+                    || configuredDifferentItem;
         }
 
         if (!configured && !configuredDifferentItem) {
@@ -149,6 +178,83 @@ public class AcceleratesLoader {
                     "addon", key.addon(),
                     "group", key.group()));
         }
+    }
+
+    private static boolean loadRykenSlimeCustomizerProjects(
+            String group,
+            List<String> rscProjects,
+            List<String> excludes,
+            boolean enabled,
+            boolean async,
+            int delay,
+            int period,
+            boolean removeOriginalTicker,
+            boolean extraTickerEnabled,
+            boolean tickUnload,
+            int extraTickerDelay,
+            int extraTickerPeriod,
+            ConfigManager configManager,
+            Map<NativeBypassKey, Integer> nativeBypassCounts) {
+        if (rscProjects.isEmpty()) {
+            return false;
+        }
+
+        RykenSlimeCustomizerIntegration.ScanResult scan = RykenSlimeCustomizerIntegration.scanProjects(rscProjects);
+        if (!scan.available()) {
+            SlimefunAccelerator.getInstance().getLogger().warning(Lang.getMessage(
+                    "load.rsc-unavailable",
+                    "group", group));
+            return false;
+        }
+
+        if (scan.failed()) {
+            SlimefunAccelerator.getInstance().getLogger().warning(Lang.getMessage(
+                    "load.rsc-scan-failed",
+                    "group", group,
+                    "message", scan.failureMessage()));
+            return false;
+        }
+
+        for (String missingProject : scan.missingProjects()) {
+            invalidKey(ACCELERATES_KEY + "." + group + "." + RSC_PROJECTS_KEY, missingProject);
+        }
+
+        boolean configuredDifferentItem = false;
+        for (RykenSlimeCustomizerIntegration.ProjectItems project : scan.matchedProjects().values()) {
+            int added = 0;
+            Set<SlimefunItem> items = project.items();
+            for (SlimefunItem slimefunItem : items) {
+                if (slimefunItem == null || excludes.contains(slimefunItem.getId().toUpperCase())) {
+                    continue;
+                }
+
+                if (isNativeBypassed(configManager, slimefunItem)) {
+                    recordNativeBypass(nativeBypassCounts, group, slimefunItem);
+                    continue;
+                }
+
+                BlockTicker ticker = slimefunItem.getBlockTicker();
+                if (ticker == null) {
+                    continue;
+                }
+
+                Accelerates.accelerate(group, slimefunItem);
+                Accelerates.addAccelerateSettings(group, enabled, async, delay, period, removeOriginalTicker, extraTickerEnabled, tickUnload, extraTickerDelay, extraTickerPeriod);
+                Accelerates.getTickers().put(slimefunItem.getId(), ticker);
+                added++;
+                configuredDifferentItem = true;
+                SlimefunAccelerator.getInstance().getLogger().info(Lang.getMessage("load.added-accelerates", "id", slimefunItem.getId()));
+            }
+
+            SlimefunAccelerator.getInstance().getLogger().info(Lang.getMessage(
+                    "load.rsc-project-loaded",
+                    "project", project.id(),
+                    "name", project.name() == null ? project.id() : project.name(),
+                    "count", added,
+                    "group", group));
+        }
+
+        return configuredDifferentItem;
     }
 
     private static boolean isNativeBypassed(ConfigManager configManager, SlimefunItem slimefunItem) {

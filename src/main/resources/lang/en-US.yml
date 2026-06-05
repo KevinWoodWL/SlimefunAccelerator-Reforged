@@ -47,6 +47,14 @@ messages:
     skipped-native-compat: "Compatibility bypass: skipped {count} items from {addon} in group {group}; keeping Slimefun native ticker."
     # {count} = wrapped item count, {divisor} = low-TPS throttle divisor
     native-throttle-installed: "Native throttle: wrapped {count} compatibility-sensitive items; low-TPS speed can drop to 1/{divisor}."
+    # {group} = accelerate group
+    rsc-force-sync: "RykenSlimefunCustomizer compatibility: group {group} has rsc-projects configured, forcing synchronous execution."
+    # {project} = RSC project id, {name} = RSC project name, {count} = loaded item count, {group} = accelerate group
+    rsc-project-loaded: "RykenSlimefunCustomizer compatibility: project {name} ({project}) loaded {count} ticker items for group {group}."
+    # {group} = accelerate group
+    rsc-unavailable: "RykenSlimefunCustomizer compatibility: group {group} has rsc-projects configured, but RykenSlimefunCustomizer is not enabled."
+    # {group} = accelerate group, {message} = failure message
+    rsc-scan-failed: "RykenSlimefunCustomizer compatibility: failed to scan group {group}: {message}"
     no-configured-accelerates: "You have not configured the SlimefunAccelerator plugin. Please check the example config.yml file."
     invalid-accelerate-key: "Invalid accelerate key in config.yml: "
     # {path} = path to config file

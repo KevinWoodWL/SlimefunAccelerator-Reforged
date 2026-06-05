@@ -48,6 +48,14 @@ messages:
     skipped-native-compat: "兼容旁路: 已跳过 {count} 个来自 {addon} 的物品，组: {group}，保留 Slimefun 原生 ticker."
     # {count} = wrapped item count, {divisor} = low-TPS throttle divisor
     native-throttle-installed: "原生降频: 已包装 {count} 个兼容敏感物品，低 TPS 时最多降至 1/{divisor} 速度."
+    # {group} = accelerate group
+    rsc-force-sync: "RykenSlimefunCustomizer 兼容: 组 {group} 配置了 rsc-projects，已强制改为同步执行."
+    # {project} = RSC project id, {name} = RSC project name, {count} = loaded item count, {group} = accelerate group
+    rsc-project-loaded: "RykenSlimefunCustomizer 兼容: 项目 {name} ({project}) 已为组 {group} 加载 {count} 个 ticker 物品."
+    # {group} = accelerate group
+    rsc-unavailable: "RykenSlimefunCustomizer 兼容: 组 {group} 配置了 rsc-projects，但未检测到已启用的 RykenSlimefunCustomizer."
+    # {group} = accelerate group, {message} = failure message
+    rsc-scan-failed: "RykenSlimefunCustomizer 兼容: 组 {group} 扫描失败: {message}"
     no-configured-accelerates: "你还没有开始配置插件!"
     invalid-accelerate-key: "无效的物品: "
     # {path} = path to config file

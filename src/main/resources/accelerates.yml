@@ -6,6 +6,7 @@ accelerates:
     delay: 10 # gt
     addons:
       - "__ExampleAddon"
+    rsc-projects: []
     items:
       - "__EXAMPLE_ITEM"
     excludes:
@@ -35,6 +36,18 @@ accelerates:
       - "Networks-Changed"
       - "Networks-Modified"
       - "SlimeAEPlugin"
+    rsc-projects: []
     items:
       - "LOGITECH_LINE_CARGO"
       - "LOGITECH_ADV_LINE_CARGO"
+  ryken_slime_customizer_example:
+    enabled: false
+    async: false
+    period: 20 # gt
+    delay: 20 # gt
+    addons: []
+    rsc-projects:
+      - "example"
+    items: []
+    excludes: []
+    remove-original-ticker: false
